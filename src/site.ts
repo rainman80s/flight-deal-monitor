@@ -58,6 +58,9 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       demo: cfg.dryRun || cfg.provider === "mock",
       subscribers: (await subs.counts()).active,
       cycle: Number(await store.getState("cycle") ?? 0),
+      last_checked_at: await store.getState("last_cycle_at"),
+      searches_per_cycle: cfg.searchesPerCycle,
+      routes: cfg.origins.length * (cfg.domestic.length + cfg.international.length),
     });
   }
 

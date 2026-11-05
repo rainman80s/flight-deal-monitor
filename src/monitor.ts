@@ -48,6 +48,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
                                now = new Date(), subs?: SubscriberStore): Promise<CycleResult> {
   const today = localParts(now, cfg.timezone).date;
   const cycle = await store.nextCycle();
+  await store.setState("last_cycle_at", now.toISOString());
   const r: CycleResult = { cycle, searches: 0, errors: 0, faresSeen: 0, deals: [], suppressed: 0, subscribersEmailed: 0 };
 
   const queries = planCycle(cfg, cycle, today);
