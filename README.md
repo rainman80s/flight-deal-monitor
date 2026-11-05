@@ -113,17 +113,16 @@ the page gets a **Buy** button that opens a booking sheet:
    that offer was already booked. Then it books via Duffel (paid from your Duffel balance)
    and emails the airline confirmation.
 
-Needs these Cloudflare secrets:
+Setup:
 
-- `DUFFEL_ACCESS_TOKEN`: start with a test token (`duffel_test_…`). Test mode books fake
-  flights and the site labels it clearly.
-- `TRAVELERS_JSON`: passenger details keyed by contact name, names exactly as on ID.
-  Add `passport_number`, `passport_expires_on` (YYYY-MM-DD) and `passport_country`
-  (2-letter) for airlines that require them.
-
-```json
-{"RAN":{"title":"mr","given_name":"First","family_name":"Last","born_on":"1995-01-31","gender":"m","email":"you@example.com","phone_number":"+12065550111"}}
-```
+- **Traveler details:** sign in and open **Account** (top right). Fill in each traveler
+  (names exactly as on ID; passport optional, needed for most international flights). Saved
+  details are encrypted in D1 (AES-GCM, key derived from `LINK_SECRET`, so don't rotate that
+  secret or saved details become unreadable). A `TRAVELERS_JSON` secret still works as a fallback.
+- **`DUFFEL_ACCESS_TOKEN`** (Cloudflare secret): start with a test token (`duffel_test_…`).
+  Test mode books fake flights and the site labels it clearly.
+- **`CONTACT_BROCK_EMAIL`** (optional secret) lets Brock sign in and book himself. You can
+  book for him either way.
 
 ## Website
 

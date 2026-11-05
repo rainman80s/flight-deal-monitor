@@ -18,9 +18,11 @@
 
   // ---------------- routing ----------------
   function route() {
-    const tab = location.hash === "#signup" ? "signup" : "browse";
+    const tab = location.hash === "#signup" ? "signup" : location.hash === "#account" ? "account" : "browse";
     $("#view-browse").hidden = tab !== "browse";
     $("#view-signup").hidden = tab !== "signup";
+    $("#view-account").hidden = tab !== "account";
+    if (tab === "account" && typeof renderAccount === "function") renderAccount();
     $(".segmented").dataset.active = tab;
     $$(".segmented a").forEach((a) => (a.dataset.tab === tab
       ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
@@ -386,7 +388,16 @@
   async function loadMe() {
     try { state.me = await (await fetch("/api/me", { credentials: "same-origin" })).json(); } catch { /* signed out */ }
     const btn = $("#account-btn");
-    btn.textContent = state.me.signed_in ? `${title(state.me.name)} · Sign out` : "Sign in";
+    btn.replaceChildren();
+    if (state.me.signed_in) {
+      const who = document.createElement("span");
+      who.className = "acct-who";
+      who.textContent = `${title(state.me.name)} · `;
+      btn.append(who, "Account");
+    } else {
+      btn.textContent = "Sign in";
+    }
+    if (location.hash === "#account") renderAccount();
   }
 
   function buyButton(c) {
@@ -402,14 +413,16 @@
   }
 
   function wireAccount() {
-    $("#account-btn").addEventListener("click", async () => {
-      if (state.me.signed_in) {
-        await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
-        location.reload();
-        return;
-      }
-      $("#signin-msg").textContent = "";
-      $("#signin-dlg").showModal();
+    const openSignin = () => { $("#signin-msg").textContent = ""; $("#signin-dlg").showModal(); };
+    $("#account-btn").addEventListener("click", () => {
+      if (state.me.signed_in) location.hash = "#account";
+      else openSignin();
+    });
+    $("#acct-signin").addEventListener("click", openSignin);
+    $("#acct-signout").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+      location.hash = "#browse";
+      location.reload();
     });
     $("#signin-form").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -477,7 +490,7 @@
     if (!b.duffel) problems.push("Add your Duffel access token as the <code>DUFFEL_ACCESS_TOKEN</code> secret in Cloudflare.");
     if (!b.enabled) problems.push("Purchasing is switched off in <code>config.json</code> (<code>booking_enabled</code>).");
     if (!(b.travelers || []).some((x) => x.ready)) {
-      problems.push("Add passenger details (names exactly as on ID) as the <code>TRAVELERS_JSON</code> secret.");
+      problems.push('Add traveler details on your <a href="#account" data-close>Account page</a>.');
     }
     const setup = $("#book-setup");
     setup.hidden = !problems.length;
@@ -511,6 +524,10 @@
   }
 
   function wireBooking() {
+    // Links inside the sheet (e.g. "Account page") close it before navigating.
+    $("#book-setup").addEventListener("click", (e) => {
+      if (e.target.closest("a[data-close]")) $("#book-dlg").close();
+    });
     $("#book-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const msg = $("#b-msg");
@@ -622,6 +639,100 @@
     $("#b-confirm").hidden = false;
     $("#b-result").textContent = "";
     $("#b-confirm").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  // ---------------- account: traveler details ----------------
+  async function renderAccount() {
+    const signedIn = !!state.me.signed_in;
+    $("#acct-signed-out").hidden = signedIn;
+    $("#acct-signed-in").hidden = !signedIn;
+    if (!signedIn) return;
+    $("#acct-name").textContent = title(state.me.name);
+    let data;
+    try { data = await (await fetch("/api/profiles", { credentials: "same-origin" })).json(); } catch { data = null; }
+    const list = $("#acct-list");
+    if (!data?.ok) { list.textContent = "Couldn't load traveler details. Refresh to try again."; return; }
+    // You first, then everyone else.
+    const people = [...data.travelers].sort((a, b) => Number(b.is_you) - Number(a.is_you));
+    list.replaceChildren(...people.map(travelerForm));
+  }
+
+  function travelerForm(t) {
+    const form = $("#traveler-tpl").content.firstElementChild.cloneNode(true);
+    $(".t-name", form).textContent = `${title(t.name)}${t.is_you ? " (you)" : ""}`;
+    const status = $(".t-status", form);
+    const setStatus = (src, at) => {
+      status.className = "t-status";
+      if (src === "account") {
+        status.textContent = `Ready to book · saved ${ago(at)}`;
+        status.classList.add("ready");
+      } else if (src === "secret") {
+        status.textContent = "Using the TRAVELERS_JSON secret. Save here to take over.";
+      } else {
+        status.textContent = "Not set up: can't be booked yet";
+        status.classList.add("todo");
+      }
+    };
+    setStatus(t.source, t.updated_at);
+    const p = t.profile || {};
+    for (const k of ["title", "given_name", "family_name", "born_on", "gender", "email", "phone_number",
+      "passport_expires_on", "passport_country"]) {
+      const el = form.elements[k];
+      if (el && p[k]) el.value = p[k];
+    }
+    if (p.passport_number_hint) {
+      form.elements.passport_number.placeholder = `${p.passport_number_hint} (saved)`;
+      form.elements.passport_number.title = "Leave blank to keep the saved number";
+    }
+    if (!t.is_you && !t.can_sign_in) {
+      const note = document.createElement("p");
+      note.className = "t-note";
+      note.innerHTML = `You can book for ${title(t.name)}. To let them sign in and book themselves, add their email `
+        + `as the <code>CONTACT_${t.name}_EMAIL</code> secret in Cloudflare.`;
+      $(".t-head", form).after(note);
+    }
+    const uid = `t-${t.name.toLowerCase()}`;
+    $$("input, select", form).forEach((el) => { el.id = `${uid}-${el.name}`; });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", form);
+      msg.className = "t-msg";
+      msg.textContent = "Saving…";
+      $$(".f-err", form).forEach((x) => { x.textContent = ""; });
+      $$("[aria-invalid]", form).forEach((x) => x.removeAttribute("aria-invalid"));
+      const body = Object.fromEntries(new FormData(form).entries());
+      const btn = $("button[type=submit]", form);
+      btn.disabled = true;
+      try {
+        const r = await fetch(`/api/profiles/${encodeURIComponent(t.name)}`, { method: "PUT", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await r.json().catch(() => ({}));
+        if (data.ok) {
+          msg.textContent = "Saved.";
+          msg.classList.add("ok");
+          setStatus("account", new Date().toISOString());
+          form.elements.passport_number.value = "";
+          if (data.profile?.passport_number_hint) {
+            form.elements.passport_number.placeholder = `${data.profile.passport_number_hint} (saved)`;
+          }
+          loadMe(); // booking sheet picks up the new traveler status
+        } else {
+          msg.textContent = data.error || "Couldn't save.";
+          msg.classList.add("err");
+          for (const [k, v] of Object.entries(data.fields || {})) {
+            const err = $(`.f-err[data-for="${k}"]`, form);
+            if (err) err.textContent = v;
+            form.elements[k]?.setAttribute("aria-invalid", "true");
+          }
+          $("[aria-invalid=true]", form)?.focus();
+        }
+      } catch {
+        msg.textContent = "Couldn't reach the server.";
+        msg.classList.add("err");
+      } finally { btn.disabled = false; }
+    });
+    return form;
   }
 
   // ---------------- sign up ----------------

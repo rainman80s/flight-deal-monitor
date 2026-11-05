@@ -11,7 +11,8 @@
  *      max_price_increase_percent over the alerted price.
  *   6. Daily spend cap.
  */
-import { type Config, contactByName, loadTravelers, type Traveler } from "./config";
+import { type Config, contactByName, type Traveler } from "./config";
+import { loadAllTravelers } from "./profiles";
 import { utcDate } from "./dates";
 import { confirmText, linkText } from "./messages";
 import type { BookingProvider, Deal } from "./models";
@@ -87,7 +88,7 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
   let people: Record<string, Traveler>;
   let fresh;
   try {
-    people = loadTravelers(cfg);
+    people = await loadAllTravelers(cfg);
     const missing = travelers.filter((t) => !(t in people));
     if (missing.length) return abort(`no passenger details for ${missing.join(", ")} in TRAVELERS_JSON`);
     provider ??= makeBookingProvider(cfg);

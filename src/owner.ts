@@ -14,7 +14,8 @@
 import type { Deps } from "./app";
 import { clearCookie, contactByEmail, currentUser, loginLink, sameOrigin, sessionCookie, verifyLoginLink } from "./auth";
 import { Budget } from "./budget";
-import { type Config, loadTravelers } from "./config";
+import type { Config } from "./config";
+import { loadAllTravelers, ProfileStore, publicProfile, validateProfile } from "./profiles";
 import { daysBetween, utcDate } from "./dates";
 import { DuffelProvider, viewOffer } from "./duffel";
 import { escHtml, page } from "./html";
@@ -32,14 +33,10 @@ function duffelFor(cfg: Config): DuffelProvider | null {
   return typeof t === "string" && t ? new DuffelProvider(t, cfg.cabinClass, cfg.maxConnections) : null;
 }
 
-function travelerStatus(cfg: Config) {
-  try {
-    const t = loadTravelers(cfg);
-    return cfg.contacts.map((c) => ({ name: c.name, ready: !!t[c.name],
-      passport: !!(t[c.name]?.passport_number && t[c.name]?.passport_expires_on && t[c.name]?.passport_country) }));
-  } catch {
-    return cfg.contacts.map((c) => ({ name: c.name, ready: false, passport: false }));
-  }
+async function travelerStatus(cfg: Config) {
+  const t = await loadAllTravelers(cfg);
+  return cfg.contacts.map((c) => ({ name: c.name, ready: !!t[c.name],
+    passport: !!(t[c.name]?.passport_number && t[c.name]?.passport_expires_on && t[c.name]?.passport_country) }));
 }
 
 async function body(req: Request): Promise<Record<string, unknown> | null> {
@@ -59,7 +56,7 @@ export async function ownerRoute(req: Request, url: URL, deps: Deps): Promise<Re
       booking: {
         enabled: cfg.bookingEnabled && !cfg.dryRun,
         duffel: !!duffel, test_mode: duffel?.testMode ?? null,
-        travelers: travelerStatus(cfg),
+        travelers: await travelerStatus(cfg),
         spend_cap: cfg.dailySpendCap, max_price_increase_percent: cfg.maxPriceIncreasePercent,
       },
     });
@@ -105,6 +102,44 @@ export async function ownerRoute(req: Request, url: URL, deps: Deps): Promise<Re
         + `<form method=post>${hidden}<button class=primary>Sign in</button></form>`);
     }
     return new Response(null, { status: 303, headers: { Location: "/#browse", "Set-Cookie": await sessionCookie(cfg, c) } });
+  }
+
+  // ---- traveler profiles (Account page) ----
+  if (p === "/api/profiles" && req.method === "GET") {
+    const user = await currentUser(cfg, req);
+    if (!user) return json({ ok: false, error: "Sign in first." }, 401);
+    const store = new ProfileStore(cfg);
+    const fromSecret = await loadAllTravelers(cfg);
+    const people = await Promise.all(cfg.contacts.map(async (c) => {
+      const saved = await store.get(c.name);
+      const meta = await store.meta(c.name);
+      return {
+        name: c.name, is_you: c.name === user.name, can_sign_in: !!c.email,
+        source: saved ? "account" : fromSecret[c.name] ? "secret" : null,
+        profile: publicProfile(saved), updated_at: meta?.updated_at ?? null, updated_by: meta?.updated_by ?? null,
+      };
+    }));
+    return json({ ok: true, travelers: people });
+  }
+
+  const prof = p.match(/^\/api\/profiles\/([A-Z0-9_]+)$/);
+  if (prof && (req.method === "PUT" || req.method === "DELETE")) {
+    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
+    const user = await currentUser(cfg, req);
+    if (!user) return json({ ok: false, error: "Sign in first." }, 401);
+    const contact = prof[1];
+    if (!cfg.contacts.some((c) => c.name === contact)) return json({ ok: false, error: "Unknown traveler." }, 404);
+    const store = new ProfileStore(cfg);
+    if (req.method === "DELETE") {
+      await store.remove(contact);
+      return json({ ok: true });
+    }
+    const b = await body(req);
+    if (!b) return json({ ok: false, error: "Bad request." }, 400);
+    const v = validateProfile(b, await store.get(contact), utcDate(new Date()));
+    if (!v.ok) return json({ ok: false, error: "Check the highlighted fields.", fields: v.errors }, 400);
+    await store.save(contact, v.profile, user.name);
+    return json({ ok: true, profile: publicProfile(v.profile) });
   }
 
   if (p === "/api/logout" && req.method === "POST") {

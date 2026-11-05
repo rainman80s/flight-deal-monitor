@@ -332,6 +332,35 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 .cal button.day:hover { border-color: var(--accent); }
 .row .btn.buy-small { border: 0; color: #fff; background: var(--accent); }
 
+/* ---------- account ---------- */
+.segmented[data-active="account"] .thumb { opacity: 0; }
+.account { padding: 48px 0 20px; max-width: 760px; }
+.lead-p { color: var(--fg-2); font-size: 17px; margin: 14px 0 22px; max-width: 40em; }
+.acct-list { display: grid; gap: 16px; margin-bottom: 22px; }
+.traveler { background: var(--surface); border: 1px solid var(--hair); border-radius: 18px; padding: 20px 22px; }
+.t-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.t-name { font-size: 20px; margin: 0; }
+.t-status { font-size: 13px; font-weight: 600; color: var(--fg-3); }
+.t-status.ready { color: #1a8f3c; }
+.t-status.todo { color: var(--warn); }
+.t-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 14px; }
+.f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.f input, .f select {
+  font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 12px; color: var(--fg);
+  background-color: var(--surface-2); border: 1px solid var(--hair); outline: none; width: 100%;
+}
+.f select { padding-right: 34px; }
+.f input:focus, .f select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10, 124, 255, .2); }
+.f [aria-invalid="true"] { border-color: #d70015; }
+.f-err { font-size: 13px; color: #d70015; min-height: 0; }
+.f-err:empty { display: none; }
+.passport { border: 0; border-top: 1px solid var(--hair); margin: 16px 0 0; padding: 14px 0 0; }
+.passport legend { padding: 0 0 8px; }
+.t-actions { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+.t-msg { font-size: 14px; font-weight: 550; }
+.t-msg.ok { color: #1a8f3c; }
+.t-msg.err { color: #d70015; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   .board-head { display: none; }
@@ -382,3 +411,7 @@ select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px
 .offer { grid-template-columns: minmax(0, 1fr) auto; }
 .offer .leg .sub { white-space: normal; overflow: visible; }
 .sheet .offers, .sheet .confirm { max-width: 100%; }
+.t-note { margin: -6px 0 12px; font-size: 13px; color: var(--fg-3); }
+.t-note code { font-family: var(--mono); }
+.wordmark { white-space: nowrap; }
+@media (max-width: 600px) { .acct-who { display: none; } }

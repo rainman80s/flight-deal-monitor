@@ -207,6 +207,66 @@
     </div>
   </section>
 
+  <!-- ===================== Account ===================== -->
+  <section id="view-account" class="view page" aria-labelledby="account-title" hidden>
+    <div class="account">
+      <h1 id="account-title">Account</h1>
+      <div id="acct-signed-out" hidden>
+        <p class="lead-p">Sign in to set up traveler details and book flights from this site.</p>
+        <button type="button" class="btn primary" id="acct-signin">Sign in</button>
+      </div>
+      <div id="acct-signed-in" hidden>
+        <p class="lead-p">Signed in as <b id="acct-name"></b>. The details below are what airlines get when you book,
+          so names must match the ID each person flies with. They're stored encrypted.</p>
+        <div id="acct-list" class="acct-list"></div>
+        <button type="button" class="btn glass-btn" id="acct-signout">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <template id="traveler-tpl">
+    <form class="traveler" novalidate>
+      <div class="t-head">
+        <h2 class="t-name"></h2>
+        <span class="t-status"></span>
+      </div>
+      <div class="t-grid">
+        <label class="f f-title"><span class="field-label">Title</span>
+          <select name="title"><option value="">Choose</option><option value="mr">Mr</option><option value="ms">Ms</option>
+            <option value="mrs">Mrs</option><option value="miss">Miss</option><option value="dr">Dr</option></select>
+          <span class="f-err" data-for="title"></span></label>
+        <label class="f"><span class="field-label">First name (as on ID)</span>
+          <input name="given_name" autocomplete="given-name"><span class="f-err" data-for="given_name"></span></label>
+        <label class="f"><span class="field-label">Last name (as on ID)</span>
+          <input name="family_name" autocomplete="family-name"><span class="f-err" data-for="family_name"></span></label>
+        <label class="f"><span class="field-label">Date of birth</span>
+          <input name="born_on" type="date" autocomplete="bday"><span class="f-err" data-for="born_on"></span></label>
+        <label class="f"><span class="field-label">Gender on ID</span>
+          <select name="gender"><option value="">Choose</option><option value="f">Female</option><option value="m">Male</option></select>
+          <span class="f-err" data-for="gender"></span></label>
+        <label class="f"><span class="field-label">Email for the airline</span>
+          <input name="email" type="email" autocomplete="email"><span class="f-err" data-for="email"></span></label>
+        <label class="f"><span class="field-label">Mobile phone</span>
+          <input name="phone_number" type="tel" autocomplete="tel" placeholder="+12065550111"><span class="f-err" data-for="phone_number"></span></label>
+      </div>
+      <fieldset class="passport">
+        <legend class="field-label">Passport (needed for most international flights)</legend>
+        <div class="t-grid">
+          <label class="f"><span class="field-label">Passport number</span>
+            <input name="passport_number" autocomplete="off"><span class="f-err" data-for="passport_number"></span></label>
+          <label class="f"><span class="field-label">Expires</span>
+            <input name="passport_expires_on" type="date"><span class="f-err" data-for="passport_expires_on"></span></label>
+          <label class="f"><span class="field-label">Issuing country</span>
+            <input name="passport_country" maxlength="2" placeholder="US" autocomplete="country"><span class="f-err" data-for="passport_country"></span></label>
+        </div>
+      </fieldset>
+      <div class="t-actions">
+        <button class="btn primary" type="submit">Save</button>
+        <span class="t-msg" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </template>
+
   <footer class="foot page">
     Fares are round trip, per person, economy, in USD. Prices change quickly. Check the fare on the booking page before you pay.
   </footer>

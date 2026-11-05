@@ -12,7 +12,8 @@
  *   6. If Duffel errors during the purchase itself, the order is marked failed and never
  *      retried automatically, since it may have gone through.
  */
-import { type Config, contactByName, type Contact, loadTravelers, type Traveler } from "./config";
+import { type Config, contactByName, type Contact, type Traveler } from "./config";
+import { loadAllTravelers } from "./profiles";
 import { utcDate } from "./dates";
 import type { DuffelProvider } from "./duffel";
 import { tell, type Notifier } from "./notify";
@@ -78,9 +79,9 @@ export async function bookOffer(cfg: Config, store: Store, notifier: Notifier, d
   if (r.travelers.some((t) => !contactByName(cfg, t))) return fail("Unknown traveler.");
 
   let people: Record<string, Traveler>;
-  try { people = loadTravelers(cfg); } catch (e) { return fail((e as Error).message); }
+  try { people = await loadAllTravelers(cfg); } catch (e) { return fail((e as Error).message); }
   const missing = r.travelers.filter((t) => !people[t]);
-  if (missing.length) return fail(`No passenger details for ${missing.join(", ")} in TRAVELERS_JSON.`);
+  if (missing.length) return fail(`No passenger details for ${missing.join(", ")}. Add them on the Account page.`);
 
   // Fresh offer: Duffel updates price/availability; this is what we'd pay.
   let offer;
@@ -105,8 +106,8 @@ export async function bookOffer(cfg: Config, store: Store, notifier: Notifier, d
       return !p.passport_number || !p.passport_expires_on || !p.passport_country;
     });
     if (noPassport.length) {
-      return fail(`This airline needs passport details for ${noPassport.join(", ")}. Add passport_number, `
-        + "passport_expires_on and passport_country to TRAVELERS_JSON, then try again.");
+      return fail(`This airline needs passport details for ${noPassport.join(", ")}. Add them on the Account page, `
+        + "then try again.");
     }
   }
   if (!testMode) {
