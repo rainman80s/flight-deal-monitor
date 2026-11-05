@@ -9,7 +9,7 @@ crons = ["*/30 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "flightmon"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+database_id = "9bba564a-0313-43c5-aa94-7f779fced42c"
 migrations_dir = "migrations"
 
 [observability]
