@@ -19,7 +19,8 @@ When a fare beats your rules, it texts and calls Ran and Brock. Either of you ca
 | Piece | State |
 |---|---|
 | Rules, rotating search planner, dedupe, deal log (D1) | ✅ built + tested |
-| Texts + calls (Twilio), keypad and text-reply handling | ✅ built + tested; signature check verified against Twilio's official SDK |
+| **Email alerts (Resend) with signed Buy/Skip buttons** | ✅ built, tested, **live** (test email delivered) |
+| Texts + calls (Twilio), optional, off by default | ✅ built + tested; signature check verified against Twilio's official SDK |
 | Booking via Duffel, with safety rails | ✅ built + tested with a fake booker; **not yet run against a real Duffel account** |
 | Duffel fare search | ✅ built; request shape tested; not yet run live |
 | Local end-to-end on Cloudflare's runtime (`wrangler dev`) | ✅ cron, admin, call script, simulated buy |
@@ -44,10 +45,12 @@ Everything ships in **dry-run mode**. Dry run searches with fake fares (labelled
 1. Every 30 minutes, ~10 searches rotate through all 108 origin × destination routes
    with different dates and trip lengths.
 2. A fare that passes the rules and is new (or has dropped 10%+ since its last alert)
-   gets a **text** to both of you. The best deal of the cycle also gets a **call**.
-   Between 10pm and 8am Pacific it's texts only.
-3. **On the call:** press **1** to buy (then **9** to confirm), **2** to skip, **3** to repeat.
-   **By text:** reply `BUY K7Q2`, then `YES K7Q2`.
+   gets an **email** with **Buy** and **Skip** buttons. The links are signed per deal and
+   person. Opening one shows a confirmation page, and the action only happens when you
+   press its button (mail scanners prefetch links).
+3. Optional, if `alerts.channels` includes `sms`/`call` and Twilio is set up: a text to each
+   person, and a call about the best deal (not 10pm–8am). On the call, press **1** to buy
+   (then **9** to confirm), **2** to skip, **3** to repeat. By text, reply `BUY K7Q2`, then `YES K7Q2`.
 4. **On a confirmed buy:**
    - With booking off (the default), you get a pre-filled booking link.
    - With booking on, it re-checks the live price, refuses if the fare rose more than 5%,
@@ -70,6 +73,7 @@ npm run dev                    # http://localhost:8787
 curl -X POST -H "Authorization: Bearer local" localhost:8787/admin/run     # one cycle now
 curl -H "Authorization: Bearer local" localhost:8787/admin/status          # deals + bookings
 curl -X POST -H "Authorization: Bearer local" "localhost:8787/admin/simulate?code=K7Q2&who=ran&verb=buy"
+curl -X POST -H "Authorization: Bearer local" localhost:8787/admin/test-email   # email latest deal (needs RESEND_API_KEY)
 ```
 
 Deploying: see [DEPLOY.md](DEPLOY.md).

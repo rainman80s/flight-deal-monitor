@@ -32,7 +32,7 @@ export class ConsoleNotifier implements Notifier {
 
 /** Resend's send-email API (https://api.resend.com/emails). */
 export class ResendEmailer {
-  constructor(private apiKey: string, private from: string, private fetcher: typeof fetch = fetch) {}
+  constructor(private apiKey: string, private from: string, private fetcher: typeof fetch = fetch.bind(globalThis)) {}
   async send(to: string, msg: Email) {
     const res = await this.fetcher("https://api.resend.com/emails", {
       method: "POST",

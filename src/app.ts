@@ -53,7 +53,14 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
                   cycle: await store.getState("cycle") ?? "0" });
   }
 
-  if (path.startsWith("/admin/")) return admin(req, url, deps);
+  if (path.startsWith("/admin/")) {
+    try {
+      return await admin(req, url, deps);
+    } catch (e) {
+      console.error("admin error", e);
+      return json({ error: (e as Error).message }, 500);
+    }
+  }
 
   const link = path.match(/^\/d\/([A-Z0-9]+)$/i);
   if (link) return emailAction(req, url, link[1].toUpperCase(), deps);

@@ -5,7 +5,7 @@
 export class TwilioNotifier {
   private base: string;
   constructor(private sid: string, private token: string, private from: string, publicBaseUrl: string,
-              private fetcher: typeof fetch = fetch) {
+              private fetcher: typeof fetch = fetch.bind(globalThis)) {
     this.base = publicBaseUrl.replace(/\/$/, "");
   }
 

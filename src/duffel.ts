@@ -28,7 +28,7 @@ interface DuffelOffer {
 export class DuffelProvider implements FareProvider, BookingProvider {
   name = "duffel";
   constructor(private token: string, private cabinClass = "economy", private maxConnections = 1,
-              private fetcher: typeof fetch = fetch) {}
+              private fetcher: typeof fetch = fetch.bind(globalThis)) {}
 
   private async post<T>(path: string, data: unknown): Promise<T> {
     const res = await this.fetcher(`${API}${path}`, {
