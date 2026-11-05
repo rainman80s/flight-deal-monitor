@@ -27,6 +27,7 @@ import { runCycle } from "./monitor";
 import type { Store } from "./store";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
+import { ignavBudget } from "./providers";
 import { siteRoute } from "./site";
 import { staticFile } from "./static";
 import type { SubscriberStore } from "./subscribers";
@@ -197,7 +198,8 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     return new Response("Unauthorized", { status: 401 });
   }
   if (url.pathname === "/admin/status" && req.method === "GET") {
-    return json({ deals: await store.recentDeals(20), bookings: await store.bookings(20) });
+    return json({ provider: cfg.provider, dry_run: cfg.dryRun, ignav_requests: await ignavBudget(cfg).usage(),
+      deals: await store.recentDeals(20), bookings: await store.bookings(20) });
   }
   if (url.pathname === "/admin/run" && req.method === "POST") {
     const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), deps.subs);

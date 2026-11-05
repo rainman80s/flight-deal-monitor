@@ -1,5 +1,6 @@
 /** Fare search providers: mock (fake data for dry runs), Duffel, Ignav (src/ignav.ts). */
-import { type Config, secret } from "./config";
+import { Budget } from "./budget";
+import { type Config, ignavKey, secret } from "./config";
 import { DuffelProvider } from "./duffel";
 import { googleFlightsUrl } from "./messages";
 import { IgnavProvider } from "./ignav";
@@ -42,10 +43,14 @@ export function makeFareProvider(cfg: Config): FareProvider {
   switch (cfg.provider) {
     case "mock": return new MockProvider(cfg);
     case "duffel": return new DuffelProvider(secret(cfg, "DUFFEL_ACCESS_TOKEN"), cfg.cabinClass, cfg.maxConnections);
-    case "ignav": return new IgnavProvider(secret(cfg, "IGNAV_API_KEY"), cfg.cabinClass, cfg.maxConnections,
-      Math.max(cfg.domesticMaxPrice, cfg.internationalMaxPrice));
+    case "ignav": return new IgnavProvider(ignavKey(cfg), cfg.cabinClass, cfg.maxConnections,
+      Math.max(cfg.domesticMaxPrice, cfg.internationalMaxPrice), fetch.bind(globalThis),
+      ignavBudget(cfg), cfg.verifyPerRun);
   }
 }
+
+export const ignavBudget = (cfg: Config) =>
+  new Budget(cfg.env.DB, "ignav", cfg.ignavDaily, cfg.ignavTotal);
 
 /** Booking always goes through Duffel, whichever provider found the fare. */
 export const makeBookingProvider = (cfg: Config) =>

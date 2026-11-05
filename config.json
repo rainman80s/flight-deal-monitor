@@ -1,10 +1,10 @@
 {
   "mode": {
-    "dry_run": true,
+    "dry_run": false,
     "booking_enabled": false
   },
   "search": {
-    "provider": "mock",
+    "provider": "ignav",
     "origins": [
       "SEA",
       "PDX"
@@ -12,21 +12,20 @@
     "currency": "USD",
     "cabin_class": "economy",
     "max_connections": 1,
-    "searches_per_cycle": 10
+    "searches_per_cycle": 10,
+    "runs_per_day": 12
   },
   "rules": {
     "domestic_max_price": 100,
     "international_max_price": 300,
     "min_days_out": 30,
-    "max_days_out": 240,
+    "max_days_out": 150,
     "min_trip_days": 2,
     "max_trip_days": 14,
     "trip_lengths_to_search": [
-      3,
-      5,
+      4,
       7,
-      10,
-      14
+      10
     ]
   },
   "destinations": {
@@ -109,5 +108,12 @@
     "mode": "responder",
     "max_price_increase_percent": 5,
     "daily_spend_cap": 700
+  },
+  "budget": {
+    "_note": "Ignav requests. Calendar = 1 request per route x 31 departure dates; verify = 1 exact search per promising date; link = 1 per alerted deal.",
+    "ignav_daily_requests": 30,
+    "ignav_total_requests": 950,
+    "calendar_searches_per_run": 2,
+    "verifications_per_run": 2
   }
 }

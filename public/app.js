@@ -65,9 +65,10 @@
       $("#lim-dom").textContent = money(m.domestic_max);
       $("#lim-intl").textContent = money(m.international_max);
       $("#n-routes").textContent = m.routes;
+      $("#days-out").textContent = `${m.min_days_out} to ${m.max_days_out}`;
       $("#n-dest").textContent = m.destinations;
       $("#last-checked").textContent = m.last_checked_at
-        ? `Last search ${ago(m.last_checked_at)}. ${m.searches_per_cycle} fares priced per run, ${m.cycle.toLocaleString()} runs so far.`
+        ? `Last search ${ago(m.last_checked_at)}. ${m.cycle.toLocaleString()} runs so far, about ${m.runs_per_day} a day.`
         : "The first search hasn't run yet.";
       $("#demo-note").hidden = !m.demo;
 

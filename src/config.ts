@@ -18,6 +18,7 @@ export interface Env {
   PUBLIC_BASE_URL?: string;
   DUFFEL_ACCESS_TOKEN?: string;
   IGNAV_API_KEY?: string;
+  "ignav-key"?: string;
   TRAVELERS_JSON?: string;
   RESEND_API_KEY?: string;
   LINK_SECRET?: string;
@@ -34,6 +35,11 @@ export interface Config {
   cabinClass: string;
   maxConnections: number;
   searchesPerCycle: number;
+  runsPerDay: number;
+  ignavDaily: number;
+  ignavTotal: number;
+  calendarPerRun: number;
+  verifyPerRun: number;
   domesticMaxPrice: number;
   internationalMaxPrice: number;
   minDaysOut: number;
@@ -71,6 +77,11 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     cabinClass: r.search.cabin_class,
     maxConnections: r.search.max_connections,
     searchesPerCycle: r.search.searches_per_cycle,
+    runsPerDay: r.search.runs_per_day,
+    ignavDaily: r.budget.ignav_daily_requests,
+    ignavTotal: r.budget.ignav_total_requests,
+    calendarPerRun: r.budget.calendar_searches_per_run,
+    verifyPerRun: r.budget.verifications_per_run,
     domesticMaxPrice: r.rules.domestic_max_price,
     internationalMaxPrice: r.rules.international_max_price,
     minDaysOut: r.rules.min_days_out,
@@ -127,6 +138,13 @@ export function validate(cfg: Config): void {
 export function secret(cfg: Config, key: keyof Env & string): string {
   const v = cfg.env[key];
   if (typeof v !== "string" || !v) throw new Error(`Missing secret ${key} (npx wrangler secret put ${key})`);
+  return v;
+}
+
+/** The Ignav key, under either name it may have been saved as. */
+export function ignavKey(cfg: Config): string {
+  const v = cfg.env.IGNAV_API_KEY ?? cfg.env["ignav-key"];
+  if (typeof v !== "string" || !v) throw new Error("Missing Ignav key (secret IGNAV_API_KEY or ignav-key)");
   return v;
 }
 

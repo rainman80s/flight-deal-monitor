@@ -4,15 +4,19 @@ import { localParts } from "./dates";
 import { actionUrl } from "./links";
 import { buyMeaning, dealEmail, dealText } from "./messages";
 import { type Deal, type Fare, type FareProvider, NotImplementedError } from "./models";
-import { planCycle } from "./planner";
+import { planCalendar, planCycle } from "./planner";
 import { cheapestPerRoute, rejectionReason } from "./rules";
 import type { Store } from "./store";
 import { notifySubscribers, type SubscriberStore } from "./subscribers";
+import { BudgetExceeded } from "./budget";
 import type { Notifier } from "./notify";
 
 export interface CycleResult {
   cycle: number; searches: number; errors: number; faresSeen: number; deals: Deal[]; suppressed: number;
   subscribersEmailed: number;
+  /** Set when a paid-request limit stopped the run early. */
+  budgetStopped?: string;
+  notes?: string[];
 }
 
 export function inQuietHours(cfg: Config, now: Date): boolean {
@@ -51,18 +55,26 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   await store.setState("last_cycle_at", now.toISOString());
   const r: CycleResult = { cycle, searches: 0, errors: 0, faresSeen: 0, deals: [], suppressed: 0, subscribersEmailed: 0 };
 
-  const queries = planCycle(cfg, cycle, today);
-  // Run searches concurrently; one failure doesn't sink the cycle.
-  const settled = await Promise.allSettled(queries.map((q) => provider.search(q)));
+  // Paid calendar search (Ignav): a few wide queries per run. Others: exact date pairs.
+  const queries = provider.name === "ignav"
+    ? planCalendar(cfg, cycle, today, cfg.calendarPerRun)
+    : planCycle(cfg, cycle, today);
+  // One at a time, so a request budget is never overshot; one failure doesn't sink the run.
   const fares: Fare[] = [];
-  settled.forEach((s, i) => {
-    r.searches++;
-    if (s.status === "fulfilled") { r.faresSeen += s.value.length; fares.push(...s.value); return; }
-    if (s.reason instanceof NotImplementedError) throw s.reason;
-    r.errors++;
-    const q = queries[i];
-    console.warn(`search ${q.origin}-${q.destination} ${q.departDate}/${q.returnDate} failed: ${s.reason}`);
-  });
+  for (const q of queries) {
+    try {
+      const found = await provider.search(q);
+      r.searches++;
+      r.faresSeen += found.length;
+      fares.push(...found);
+    } catch (e) {
+      if (e instanceof NotImplementedError) throw e;
+      if (e instanceof BudgetExceeded) { r.budgetStopped = e.message; console.log(e.message); break; }
+      r.searches++;
+      r.errors++;
+      console.warn(`search ${q.origin}-${q.destination} ${q.departDate}/${q.returnDate} failed: ${e}`);
+    }
+  }
 
   const candidates: Fare[] = [];
   for (const f of cheapestPerRoute(fares)) {
@@ -77,7 +89,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   for (const [i, f] of candidates.entries()) {
     if (i < cfg.maxAlertsPerCycle && provider.bookingLink && f.offerId) {
       try { f.bookingUrl = (await provider.bookingLink(f.offerId)) ?? f.bookingUrl; }
-      catch (e) { console.warn(`booking link for ${f.origin}-${f.destination} failed: ${e}`); }
+      catch (e) { console.warn(`booking link for ${f.origin}-${f.destination} skipped: ${e}`); }
     }
     const d = await store.addDeal(f);
     if (i >= cfg.maxAlertsPerCycle) continue; // logged, not alerted; may alert on a later cycle
@@ -86,6 +98,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     r.deals.push((await store.deal(d.id))!);
   }
 
+  if (provider.notes?.length) r.notes = [...provider.notes];
   console.log(`cycle ${cycle}: ${r.searches} searches (${r.errors} errors), ${r.faresSeen} fares, `
     + `${r.deals.length} alerted, ${r.suppressed} already-known`);
   return r;

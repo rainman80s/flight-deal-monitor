@@ -9,9 +9,10 @@ type = "Text"
 globs = ["**/public/*.html", "**/public/*.css", "**/public/*.js"]
 fallthrough = false
 
-# How often a search cycle runs (UTC cron). Every 30 minutes:
+# How often a search run happens (UTC cron): every 2 hours, at :07. Keep search.runs_per_day
+# in config.json in step with this (it only feeds the site's status text and budgeting notes).
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["7 */2 * * *"]
 
 [[d1_databases]]
 binding = "DB"

@@ -83,7 +83,7 @@ describe("browse API", () => {
   });
 
   it("meta reports airports, limits and demo mode", async () => {
-    const m = (await site().call("/api/meta")).body;
+    const m = (await site({ dryRun: true, provider: "mock" }).call("/api/meta")).body;
     expect(m).toMatchObject({ domestic_max: 100, international_max: 300, demo: true, destinations: 54 });
     expect(m.origins).toEqual([{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }]);
   });

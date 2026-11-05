@@ -1,8 +1,14 @@
 export interface SearchQuery {
   origin: string;
   destination: string;
-  departDate: string; // YYYY-MM-DD
+  departDate: string; // YYYY-MM-DD (first departure date when windowDays is set)
   returnDate: string;
+  /** Calendar search: check every departure date in [departDate, departDate + windowDays - 1]. */
+  windowDays?: number;
+  /** Calendar search: trip length in days. */
+  stayDays?: number;
+  /** The route's price limit, so providers can skip what can't be a deal. */
+  maxPrice?: number;
 }
 
 /** One round-trip fare, per person. */
@@ -52,6 +58,8 @@ export interface FareProvider {
   search(q: SearchQuery): Promise<Fare[]>;
   /** Optional: a better booking URL (e.g. airline-direct) for a fare's offerId. */
   bookingLink?(offerId: string): Promise<string | null>;
+  /** Optional: human-readable lines about this run's searches. */
+  readonly notes?: string[];
 }
 
 export interface BookingProvider {

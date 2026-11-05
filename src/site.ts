@@ -53,7 +53,8 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     return json({
       origins: cfg.origins.map((o) => ({ code: o, city: city(o) })),
       domestic_max: cfg.domesticMaxPrice, international_max: cfg.internationalMaxPrice,
-      min_days_out: cfg.minDaysOut, max_trip_days: cfg.maxTripDays,
+      min_days_out: cfg.minDaysOut, max_days_out: cfg.maxDaysOut, max_trip_days: cfg.maxTripDays,
+      runs_per_day: cfg.runsPerDay,
       destinations: cfg.domestic.length + cfg.international.length,
       demo: cfg.dryRun || cfg.provider === "mock",
       subscribers: (await subs.counts()).active,
@@ -70,7 +71,9 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const max = intIn(url.searchParams.get("max"), 1, 100000);
     const limit = intIn(url.searchParams.get("limit"), 1, 100) ?? 60;
     const sort = url.searchParams.get("sort") === "price" ? "price" : "recent";
-    let deals = (await store.recentDeals(300)).map((d) => publicDeal(cfg, d));
+    const demo = cfg.dryRun || cfg.provider === "mock";
+    // Once live search is on, old test fares disappear from the site.
+    let deals = (await store.recentDeals(300)).filter((d) => demo || !d.is_fake).map((d) => publicDeal(cfg, d));
     if (cfg.origins.includes(origin)) deals = deals.filter((d) => d.origin === origin);
     if (kind === "domestic" || kind === "international") deals = deals.filter((d) => d.kind === kind);
     if (max) deals = deals.filter((d) => d.price <= max);
