@@ -1,60 +1,120 @@
-# Deploying
+# Deploying to Cloudflare
 
-The monitor needs an always-on machine with a public HTTPS address, because Twilio
-sends your keypad and text answers to it. A $5–6/month server (DigitalOcean,
-Hetzner, Lightsail) plus a domain or subdomain works.
+## Accounts first
 
-## Accounts to set up first
+1. **Cloudflare:** a free account works for dry runs. Upgrade to Workers Paid ($5/mo)
+   before going live with Duffel.
+2. **Twilio:** buy a number with voice + SMS. Start A2P 10DLC registration (required for
+   US texting; can take days). Note the Account SID and Auth Token.
+3. **Duffel:** create a **test** access token (`duffel_test_...`).
 
-1. **Twilio:** buy a phone number with voice + SMS. Complete A2P 10DLC registration
-   (required for US texting). Note the Account SID and Auth Token.
-2. **Duffel:** sign up and create a **test** access token to start.
-3. **Domain:** point an A record (e.g. `flights.yourdomain.com`) at the server's IP.
-
-## On the server (Ubuntu)
+## One-time setup
 
 ```bash
-sudo apt update && sudo apt install -y docker.io docker-compose-v2 git
-git clone <this repo> flightmon && cd flightmon
-cp config.example.toml config.toml
-cp .env.example .env
-cp Caddyfile.example Caddyfile
-cp travelers.example.toml travelers.toml
-mkdir -p data
+npm install --legacy-peer-deps
+npx wrangler login
+npx wrangler d1 create flightmon
 ```
 
-Edit:
-- `.env`: Twilio keys, Duffel token, `PUBLIC_BASE_URL=https://flights.yourdomain.com`,
-  both phone numbers
-- `Caddyfile`: your domain
-- `config.toml`: start with `dry_run = true`
-- `travelers.toml`: only needed once booking is enabled
+Paste the `database_id` that prints into `wrangler.toml`, then:
 
 ```bash
-sudo docker compose up -d --build
-curl https://flights.yourdomain.com/health
-sudo docker compose logs -f flightmon
+npm run db:migrate
 ```
 
-## Point Twilio at it
+Set the secrets. Each command prompts for the value:
 
-In the Twilio console, under your number → Messaging, set "A message comes in" to a
-webhook: `https://flights.yourdomain.com/sms` (HTTP POST). Calls need no setting
-there: each outbound call tells Twilio which URL to use.
+```bash
+npx wrangler secret put ADMIN_TOKEN
+```
 
-## Going live
+```bash
+npx wrangler secret put CONTACT_RAN_PHONE
+```
 
-Edit `config.toml`, then `sudo docker compose restart flightmon`:
+```bash
+npx wrangler secret put CONTACT_BROCK_PHONE
+```
 
-1. `dry_run = false`, `provider = "duffel"`, `booking_enabled = false`. Do a supervised
-   first run with both of you around.
-2. With a Duffel test token, set `booking_enabled = true`. Test bookings move no money.
-3. Swap in a live Duffel token, fund the Duffel balance, and double-check `travelers.toml`.
+```bash
+npm run deploy
+```
 
-Requests not signed by Twilio are rejected (HTTP 403) in live mode, so random visitors
-can't trigger a booking.
+The deploy prints your Worker's address, e.g. `https://flight-deal-monitor.<you>.workers.dev`.
+To use your own domain instead, add a custom domain to the Worker in the Cloudflare
+dashboard (Workers & Pages → the Worker → Settings → Domains & Routes).
 
-## Backups
+Check it:
 
-Everything lives in `data/flightmon.sqlite3`. Copy it off the server occasionally if
-you care about the deal history.
+```bash
+curl https://<your-worker-address>/health
+```
+
+```bash
+npx wrangler tail
+```
+
+It's now in dry run: it searches fake fares every 30 minutes and logs alerts.
+
+## Going live, in stages
+
+**1. Real texts and calls, no buying.** Add the Twilio and Duffel secrets:
+
+```bash
+npx wrangler secret put TWILIO_ACCOUNT_SID
+```
+
+```bash
+npx wrangler secret put TWILIO_AUTH_TOKEN
+```
+
+```bash
+npx wrangler secret put TWILIO_FROM_NUMBER
+```
+
+```bash
+npx wrangler secret put PUBLIC_BASE_URL
+```
+
+```bash
+npx wrangler secret put DUFFEL_ACCESS_TOKEN
+```
+
+`PUBLIC_BASE_URL` is the Worker's address, with no trailing slash.
+
+In the Twilio console, set your number's "A message comes in" webhook to
+`https://<your-worker-address>/sms` (HTTP POST). Calls need no console setting.
+
+In `config.json`, set `"dry_run": false` and `"provider": "duffel"`, keep
+`"booking_enabled": false`, then `npm run deploy`. Do the first run with both of you
+around. To trigger a cycle immediately:
+
+```bash
+curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://<your-worker-address>/admin/run
+```
+
+**2. Test bookings.** Still on the Duffel *test* token, add passenger details as one JSON
+secret. Names must match each person's ID exactly:
+
+```bash
+npx wrangler secret put TRAVELERS_JSON
+```
+
+Paste a value like this (one line is fine):
+
+```json
+{"RAN":{"title":"mr","given_name":"First","family_name":"Last","born_on":"1995-01-31","gender":"m","email":"you@example.com","phone_number":"+12065550111"},
+ "BROCK":{"title":"mr","given_name":"First","family_name":"Last","born_on":"1995-01-31","gender":"m","email":"brock@example.com","phone_number":"+12065550122"}}
+```
+
+Set `"booking_enabled": true` and deploy. Test bookings move no money.
+
+**3. Real bookings.** Replace `DUFFEL_ACCESS_TOKEN` with a live token and fund your
+Duffel balance (bookings are paid from it).
+
+## Safety notes
+
+- In live mode, Twilio webhooks without a valid Twilio signature are rejected (403).
+- `/admin/*` needs `Authorization: Bearer <ADMIN_TOKEN>`.
+- To pause everything: set `"dry_run": true` and deploy, or comment out the cron in
+  `wrangler.toml` and deploy.

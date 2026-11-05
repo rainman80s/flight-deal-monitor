@@ -1,10 +1,7 @@
-.venv/
-__pycache__/
-*.pyc
-.env
-travelers.toml
-config.toml
-data/
-.pytest_cache/
+node_modules/
+.wrangler/
+.dev.vars
 *.bundle
 *.zip
+.venv/
+__pycache__/

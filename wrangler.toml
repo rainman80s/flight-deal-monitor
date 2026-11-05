@@ -1,0 +1,25 @@
+name = "flight-deal-monitor"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# How often a search cycle runs (UTC cron). Every 30 minutes:
+[triggers]
+crons = ["*/30 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flightmon"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+migrations_dir = "migrations"
+
+[observability]
+enabled = true
+
+# Secrets (set with `npx wrangler secret put NAME`, never in this file):
+#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER
+#   PUBLIC_BASE_URL            e.g. https://flights.yourdomain.com
+#   CONTACT_RAN_PHONE, CONTACT_BROCK_PHONE   E.164, e.g. +12065550111
+#   DUFFEL_ACCESS_TOKEN        duffel_test_... first
+#   TRAVELERS_JSON             passenger details, only needed for booking (see README)
+#   ADMIN_TOKEN                any long random string; protects /admin/*
+#   IGNAV_API_KEY              once the Ignav adapter exists
