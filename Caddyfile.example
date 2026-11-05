@@ -1,0 +1,4 @@
+# Copy to Caddyfile and replace with your domain (an A record must point at the server).
+flights.example.com {
+    reverse_proxy flightmon:8080
+}
