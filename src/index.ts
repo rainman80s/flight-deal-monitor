@@ -1,16 +1,10 @@
 /** Cloudflare Worker entry: HTTP (Twilio webhooks, admin) + cron (search cycles). */
 import { handle } from "./app";
-import { buildConfig, type Config, type Env, secret } from "./config";
+import { buildConfig, type Env } from "./config";
 import { runCycle } from "./monitor";
 import { makeFareProvider } from "./providers";
 import { Store } from "./store";
-import { ConsoleNotifier, type Notifier, TwilioNotifier } from "./twilio";
-
-function makeNotifier(cfg: Config): Notifier {
-  if (cfg.dryRun) return new ConsoleNotifier();
-  return new TwilioNotifier(secret(cfg, "TWILIO_ACCOUNT_SID"), secret(cfg, "TWILIO_AUTH_TOKEN"),
-    secret(cfg, "TWILIO_FROM_NUMBER"), secret(cfg, "PUBLIC_BASE_URL"));
-}
+import { makeNotifier } from "./notify";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

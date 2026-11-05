@@ -12,13 +12,18 @@ database_name = "flightmon"
 database_id = "9bba564a-0313-43c5-aa94-7f779fced42c"
 migrations_dir = "migrations"
 
+[vars]
+PUBLIC_BASE_URL = "https://flight-deal-monitor.ranenbothel.workers.dev"
+
 [observability]
 enabled = true
 
 # Secrets (set with `npx wrangler secret put NAME`, never in this file):
-#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER
-#   PUBLIC_BASE_URL            e.g. https://flights.yourdomain.com
-#   CONTACT_RAN_PHONE, CONTACT_BROCK_PHONE   E.164, e.g. +12065550111
+#   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER   optional, for sms/call
+#   RESEND_API_KEY             email alerts (resend.com)
+#   LINK_SECRET                any long random string; signs email Buy/Skip links
+#   CONTACT_RAN_EMAIL, CONTACT_BROCK_EMAIL   where alerts go
+#   CONTACT_RAN_PHONE, CONTACT_BROCK_PHONE   only if alerts.channels has sms/call (Twilio)
 #   DUFFEL_ACCESS_TOKEN        duffel_test_... first
 #   TRAVELERS_JSON             passenger details, only needed for booking (see README)
 #   ADMIN_TOKEN                any long random string; protects /admin/*

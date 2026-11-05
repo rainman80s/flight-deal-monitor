@@ -7,20 +7,28 @@
  *   POST /voice/confirm/<code>?who=NAME  handles "press 9 to confirm"
  *   POST /sms                            inbound texts: BUY <code>, YES <code>, SKIP <code>
  *
+ * Email buttons (signed links, see links.ts):
+ *   GET  /d/<code>?who=&a=buy|skip&t=   confirmation page (GET never acts: mail scanners prefetch links)
+ *   POST /d/<code>                       performs the action
+ *
  * Admin (needs header  Authorization: Bearer <ADMIN_TOKEN>):
  *   GET  /admin/status                   recent deals + bookings
  *   POST /admin/run                      run a search cycle now
+ *   POST /admin/test-email              email the latest deal now (works in dry run)
  *   POST /admin/simulate?code=&who=&verb=buy|yes|skip   act like a text reply (dry run only)
  *
  *   GET  /health
  */
 import { executeBuy, maxTotal, needsConfirmation, requestBuy, travelersFor } from "./booking";
-import { type Config, contactByName, contactByPhone, secret } from "./config";
+import { type Config, contactByName, contactByPhone, isDomestic, maxPriceFor, secret } from "./config";
 import { dealSpeech } from "./messages";
 import type { BookingProvider, Deal, FareProvider } from "./models";
 import { runCycle } from "./monitor";
 import type { Store } from "./store";
-import { gather, message, type Notifier, pause, redirect, say, twiml, validTwilioRequest } from "./twilio";
+import { actionUrl, verifyLink } from "./links";
+import { buyMeaning, city, dealEmail } from "./messages";
+import { type Notifier, ResendEmailer } from "./notify";
+import { gather, message, pause, redirect, say, twiml, validTwilioRequest } from "./twilio";
 
 export interface Deps {
   cfg: Config;
@@ -46,6 +54,9 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (path.startsWith("/admin/")) return admin(req, url, deps);
+
+  const link = path.match(/^\/d\/([A-Z0-9]+)$/i);
+  if (link) return emailAction(req, url, link[1].toUpperCase(), deps);
 
   if (req.method !== "POST") return new Response("Not found", { status: 404 });
 
@@ -170,6 +181,22 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     const r = await runCycle(cfg, store, deps.fareProvider(), notifier);
     return json({ ...r, deals: r.deals.map((d) => `${d.code} ${d.origin}-${d.destination} $${d.price}`) });
   }
+  if (url.pathname === "/admin/test-email" && req.method === "POST") {
+    // Sends one real alert email for the most recent deal, even in dry run, so the email
+    // path can be tried before real fares are flowing.
+    const d = (await store.recentDeals(1))[0];
+    if (!d) return json({ error: "no deals yet; POST /admin/run first" }, 400);
+    const emailer = new ResendEmailer(secret(cfg, "RESEND_API_KEY"), String(cfg.env.EMAIL_FROM ?? cfg.emailFrom));
+    const kind = isDomestic(cfg, d.destination) ? "domestic" : "international";
+    const sent: string[] = [];
+    for (const c of cfg.contacts.filter((c) => c.email)) {
+      await emailer.send(c.email, dealEmail(d, kind, maxPriceFor(cfg, d.destination),
+        await actionUrl(cfg, d.code, c.name, "buy"), await actionUrl(cfg, d.code, c.name, "skip"),
+        buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake)));
+      sent.push(c.name);
+    }
+    return json({ deal: d.code, sent });
+  }
   if (url.pathname === "/admin/simulate" && req.method === "POST") {
     if (!cfg.dryRun) return json({ error: "simulate only works in dry run" }, 400);
     const who = (url.searchParams.get("who") ?? "").toUpperCase();
@@ -183,4 +210,71 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     return json({ reply, results });
   }
   return new Response("Not found", { status: 404 });
+}
+
+// ---------------- email buttons ----------------
+
+const escHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const PAGE_CSS = `body{font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;`
+  + `color:#1a1a1a;background:#fff}button{font-size:17px;padding:12px 28px;border:0;border-radius:8px;`
+  + `color:#fff;font-weight:600;cursor:pointer}.buy{background:#1a7f37}.skip{background:#6e7781}`
+  + `.muted{color:#555;font-size:14px}a{color:#0969da}@media (prefers-color-scheme:dark){`
+  + `body{background:#0d1117;color:#e6edf3}.muted{color:#9da7b3}a{color:#58a6ff}}`;
+
+function page(title: string, body: string, status = 200): Response {
+  return new Response(`<!doctype html><html><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)}</title>`
+    + `<style>${PAGE_CSS}</style></head><body>${body}</body></html>`,
+    { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+async function emailAction(req: Request, url: URL, code: string, deps: Deps): Promise<Response> {
+  const { cfg, store, notifier } = deps;
+  const params: Record<string, string> = {};
+  if (req.method === "POST") for (const [k, v] of new URLSearchParams(await req.text())) params[k] = v;
+  else if (req.method === "GET") for (const [k, v] of url.searchParams) params[k] = v;
+  else return page("Not allowed", "<p>Not allowed.</p>", 405);
+
+  const who = params.who ?? "", action = params.a ?? "", token = params.t ?? "";
+  if (!["buy", "skip"].includes(action) || !contactByName(cfg, who)
+      || !(await verifyLink(cfg, code, who, action, token))) {
+    return page("Invalid link", "<h2>That link isn't valid.</h2><p class=muted>It may be incomplete or altered.</p>", 403);
+  }
+  const d = await store.dealByCode(code);
+  if (!d) return page("Unknown deal", "<h2>Deal not found.</h2>", 404);
+
+  const summary = `<h2>${escHtml(city(d.origin))} → ${escHtml(city(d.destination))}</h2>`
+    + `<p><b>$${d.price.toFixed(0)}</b> round trip · ${escHtml(d.depart_date)} → ${escHtml(d.return_date)}`
+    + ` · deal ${d.code}</p>`;
+
+  if (req.method === "GET") {
+    const travelers = travelersFor(cfg, who);
+    const hidden = `<input type=hidden name=who value="${escHtml(who)}"><input type=hidden name=a value="${action}">`
+      + `<input type=hidden name=t value="${escHtml(token)}">`;
+    if (action === "skip") {
+      return page("Skip deal", `${summary}<form method=post>${hidden}<button class=skip>Skip this deal</button></form>`);
+    }
+    const real = needsConfirmation(cfg, d);
+    const warn = real
+      ? `<p>This will buy for <b>${escHtml(travelers.join(" and "))}</b>, up to `
+        + `<b>$${maxTotal(cfg, d, travelers).toFixed(0)}</b> total. The price is re-checked first. `
+        + `Tickets are likely <b>nonrefundable</b>.</p>`
+      : `<p class=muted>${escHtml(buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake))}</p>`;
+    return page("Buy deal", `${summary}${warn}<form method=post>${hidden}`
+      + `<button class=buy>${real ? "Confirm purchase" : "Buy"}</button></form>`);
+  }
+
+  // POST: act
+  if (action === "skip") {
+    await store.addResponse(d.id, who, "skip", "email");
+    return page("Skipped", `${summary}<p>Skipped. You won't hear about this exact fare again `
+      + `unless it drops another ${cfg.realertDropPercent}%.</p>`);
+  }
+  await store.addResponse(d.id, who, "buy_requested", "email");
+  if (needsConfirmation(cfg, d)) await store.addResponse(d.id, who, "confirmed", "email");
+  const result = await executeBuy(cfg, store, notifier, d, who, deps.bookingProvider);
+  const linked = escHtml(result).replace(/(https:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+  return page("Result", `${summary}<p>${linked}</p>`);
 }

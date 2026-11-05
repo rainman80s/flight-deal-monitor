@@ -91,7 +91,7 @@ class Fixed implements FareProvider {
 
 describe("search cycle", () => {
   it("texts and calls both people, then dedupes, re-alerting only on a 10% drop", async () => {
-    const { cfg, store, notifier } = setup();
+    const { cfg, store, notifier } = setup({ channels: ["sms", "call"] });
     const p = new Fixed([fare("LAX", 90)]);
     expect((await runCycle(cfg, store, p, notifier, NOON)).deals).toHaveLength(1);
     expect(notifier.sent.filter((s) => s.kind === "sms")).toHaveLength(2);
@@ -108,7 +108,7 @@ describe("search cycle", () => {
   });
 
   it("texts only during quiet hours; one deal gets calls per cycle", async () => {
-    const { cfg, store, notifier } = setup();
+    const { cfg, store, notifier } = setup({ channels: ["sms", "call"] });
     const p = new Fixed([fare("LAX", 90), fare("DEN", 60), fare("NRT", 200)]);
     expect((await runCycle(cfg, store, p, notifier, NIGHT)).deals).toHaveLength(3);
     expect(notifier.sent.some((s) => s.kind === "call")).toBe(false);
@@ -122,7 +122,7 @@ describe("search cycle", () => {
   });
 
   it("caps texts per cycle; extra deals are logged and alerted later", async () => {
-    const { cfg, store, notifier } = setup({ maxTextsPerCycle: 1 });
+    const { cfg, store, notifier } = setup({ maxAlertsPerCycle: 1 });
     const p = new Fixed([fare("LAX", 90), fare("DEN", 60)]);
     expect((await runCycle(cfg, store, p, notifier, NOON)).deals.map((d) => d.destination)).toEqual(["DEN"]);
     expect((await runCycle(cfg, store, p, notifier, NOON)).deals.map((d) => d.destination)).toEqual(["LAX"]);
@@ -141,7 +141,7 @@ describe("search cycle", () => {
   });
 
   it("mock fares are flagged FAKE", async () => {
-    const { cfg, store, notifier } = setup();
+    const { cfg, store, notifier } = setup({ channels: ["sms", "call"] });
     const r = await runCycle(cfg, store, new MockProvider(cfg, 1), notifier, NOON);
     expect(r.deals.length).toBeGreaterThan(0);
     expect(r.deals.every((d) => d.is_fake === 1)).toBe(true);

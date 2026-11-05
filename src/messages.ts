@@ -53,6 +53,50 @@ export function linkText(d: Deal): string {
     + `(price may have moved): ${d.booking_url}`;
 }
 
+const escHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+/** What pressing Buy will actually do, given the current mode. */
+export function buyMeaning(dryRun: boolean, bookingEnabled: boolean, isFake: boolean): string {
+  if (isFake) return "This is a fake test fare, so Buy only records your answer.";
+  if (dryRun) return "Dry run: Buy only records your answer; nothing is purchased.";
+  if (!bookingEnabled) return "Buy gets you a booking link (automatic purchase is off).";
+  return "Buy opens a confirmation page. Confirming re-checks the price and purchases the ticket.";
+}
+
+export function dealEmail(d: Deal, kind: string, limit: number, buyUrl: string, skipUrl: string,
+                          meaning: string): { subject: string; text: string; html: string } {
+  const fake = d.is_fake ? "[FAKE TEST FARE] " : "";
+  const airlines = (JSON.parse(d.airlines) as string[]).join(", ") || "?";
+  const subject = `${fake}✈ ${city(d.origin)} → ${city(d.destination)} $${d.price.toFixed(0)} round trip, `
+    + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
+  const lines = [
+    `${d.origin} → ${d.destination} (${city(d.destination)})`,
+    `$${d.price.toFixed(2)} ${d.currency} round trip per person (${kind}, under $${limit})`,
+    `Leave ${shortDate(d.depart_date)}, return ${shortDate(d.return_date)} (${tripDays(d)} days)`,
+    `Outbound ${stops(d.outbound_stops)}, return ${stops(d.return_stops)} · ${airlines}`,
+    `Deal code ${d.code}`,
+  ];
+  const text = `${fake}Flight deal\n\n${lines.join("\n")}\n\n${meaning}\n\nBuy: ${buyUrl}\nSkip: ${skipUrl}\n`
+    + (d.booking_url ? `\nSee it on Google Flights: ${d.booking_url}\n` : "");
+  const btn = (href: string, label: string, bg: string) =>
+    `<a href="${escHtml(href)}" style="display:inline-block;padding:12px 28px;margin-right:10px;border-radius:8px;`
+    + `background:${bg};color:#fff;text-decoration:none;font-weight:600">${label}</a>`;
+  const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;color:#1a1a1a">
+  ${fake ? `<p style="background:#fff3cd;padding:8px 12px;border-radius:6px"><b>Fake test fare</b>: not a real flight.</p>` : ""}
+  <h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(city(d.destination))}</h2>
+  <p style="font-size:28px;font-weight:700;margin:4px 0">$${d.price.toFixed(0)} <span style="font-size:15px;font-weight:400;color:#555">round trip · ${kind} · under $${limit}</span></p>
+  <p style="font-size:15px;line-height:1.6;margin:12px 0">
+    ${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))} (${tripDays(d)} days)<br>
+    Out ${stops(d.outbound_stops)} · back ${stops(d.return_stops)} · ${escHtml(airlines)}<br>
+    <span style="color:#666">${d.origin}–${d.destination} · deal ${d.code}</span></p>
+  <p style="margin:20px 0">${btn(buyUrl, "Buy", "#1a7f37")}${btn(skipUrl, "Skip", "#6e7781")}</p>
+  <p style="font-size:13px;color:#555">${escHtml(meaning)}</p>
+  ${d.booking_url ? `<p style="font-size:13px"><a href="${escHtml(d.booking_url)}">See it on Google Flights</a></p>` : ""}
+</div>`;
+  return { subject, text, html };
+}
+
 export function googleFlightsUrl(origin: string, dest: string, depart: string, ret: string): string {
   const q = `Flights from ${origin} to ${dest} on ${depart} through ${ret}`;
   return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;

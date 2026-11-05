@@ -1,24 +1,8 @@
 /** Twilio over plain fetch: send texts, place calls, build TwiML, verify webhook signatures. */
 
-export interface Notifier {
-  sms(to: string, body: string): Promise<void>;
-  call(to: string, dealCode: string, contact: string): Promise<void>;
-}
 
-/** Dry run: records instead of contacting anyone. */
-export class ConsoleNotifier implements Notifier {
-  sent: { kind: "sms" | "call"; to: string; body: string }[] = [];
-  async sms(to: string, body: string) {
-    this.sent.push({ kind: "sms", to, body });
-    console.log(`[DRY RUN] text to ${to}:\n${body}`);
-  }
-  async call(to: string, dealCode: string, contact: string) {
-    this.sent.push({ kind: "call", to, body: `${dealCode}:${contact}` });
-    console.log(`[DRY RUN] would call ${to} (${contact}) about deal ${dealCode}`);
-  }
-}
-
-export class TwilioNotifier implements Notifier {
+/** Texts and calls (optional channel; alerts default to email). */
+export class TwilioNotifier {
   private base: string;
   constructor(private sid: string, private token: string, private from: string, publicBaseUrl: string,
               private fetcher: typeof fetch = fetch) {

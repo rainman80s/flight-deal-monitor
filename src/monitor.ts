@@ -1,12 +1,13 @@
 /** One search cycle: plan -> search -> filter -> dedupe -> alert. Runs on the cron trigger. */
 import { type Config, isDomestic, maxPriceFor } from "./config";
 import { localParts } from "./dates";
-import { dealText } from "./messages";
+import { actionUrl } from "./links";
+import { buyMeaning, dealEmail, dealText } from "./messages";
 import { type Deal, type Fare, type FareProvider, NotImplementedError } from "./models";
 import { planCycle } from "./planner";
 import { cheapestPerRoute, rejectionReason } from "./rules";
 import type { Store } from "./store";
-import type { Notifier } from "./twilio";
+import type { Notifier } from "./notify";
 
 export interface CycleResult {
   cycle: number; searches: number; errors: number; faresSeen: number; deals: Deal[]; suppressed: number;
@@ -21,10 +22,20 @@ export function inQuietHours(cfg: Config, now: Date): boolean {
 
 async function alert(cfg: Config, store: Store, notifier: Notifier, d: Deal, call: boolean) {
   const kind = isDomestic(cfg, d.destination) ? "domestic" : "international";
-  const body = dealText(d, kind, maxPriceFor(cfg, d.destination), cfg.bookingEnabled && !cfg.dryRun);
+  const limit = maxPriceFor(cfg, d.destination);
   for (const c of cfg.contacts) {
-    try { await notifier.sms(c.phone, body); } catch (e) { console.error(`text to ${c.name} failed`, e); }
-    if (call) {
+    if (cfg.channels.includes("email") && c.email) {
+      try {
+        const msg = dealEmail(d, kind, limit, await actionUrl(cfg, d.code, c.name, "buy"),
+          await actionUrl(cfg, d.code, c.name, "skip"), buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake));
+        await notifier.email(c.email, msg);
+      } catch (e) { console.error(`email to ${c.name} failed`, e); }
+    }
+    if (cfg.channels.includes("sms") && c.phone) {
+      const body = dealText(d, kind, limit, cfg.bookingEnabled && !cfg.dryRun);
+      try { await notifier.sms(c.phone, body); } catch (e) { console.error(`text to ${c.name} failed`, e); }
+    }
+    if (call && cfg.channels.includes("call") && c.phone) {
       try { await notifier.call(c.phone, d.code, c.name); } catch (e) { console.error(`call to ${c.name} failed`, e); }
     }
   }
@@ -62,7 +73,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   const quiet = inQuietHours(cfg, now);
   for (const [i, f] of candidates.entries()) {
     const d = await store.addDeal(f);
-    if (i >= cfg.maxTextsPerCycle) continue; // logged, not alerted; may alert on a later cycle
+    if (i >= cfg.maxAlertsPerCycle) continue; // logged, not alerted; may alert on a later cycle
     await alert(cfg, store, notifier, d, !quiet && i < cfg.maxCallsPerCycle);
     r.deals.push((await store.deal(d.id))!);
   }

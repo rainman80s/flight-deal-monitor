@@ -1,6 +1,8 @@
 import raw from "../config.json";
 
-export interface Contact { name: string; phone: string }
+export interface Contact { name: string; phone: string; email: string }
+
+export type Channel = "email" | "sms" | "call";
 
 export interface Traveler {
   title: string; given_name: string; family_name: string; born_on: string;
@@ -17,6 +19,8 @@ export interface Env {
   DUFFEL_ACCESS_TOKEN?: string;
   IGNAV_API_KEY?: string;
   TRAVELERS_JSON?: string;
+  RESEND_API_KEY?: string;
+  LINK_SECRET?: string;
   ADMIN_TOKEN?: string;
   [key: string]: unknown;
 }
@@ -44,7 +48,9 @@ export interface Config {
   quietEnd: number;
   realertDropPercent: number;
   maxCallsPerCycle: number;
-  maxTextsPerCycle: number;
+  maxAlertsPerCycle: number;
+  channels: Channel[];
+  emailFrom: string;
   contacts: Contact[];
   bookingMode: "responder" | "both";
   maxPriceIncreasePercent: number;
@@ -79,9 +85,13 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     quietEnd: r.alerts.quiet_hours_end,
     realertDropPercent: r.alerts.realert_drop_percent,
     maxCallsPerCycle: r.alerts.max_calls_per_cycle,
-    maxTextsPerCycle: r.alerts.max_texts_per_cycle,
+    maxAlertsPerCycle: r.alerts.max_alerts_per_cycle,
+    channels: r.alerts.channels as Channel[],
+    emailFrom: r.alerts.email_from,
     contacts: r.alerts.contacts.map((name) => ({
-      name, phone: String(env[`CONTACT_${name}_PHONE`] ?? ""),
+      name,
+      phone: String(env[`CONTACT_${name}_PHONE`] ?? ""),
+      email: String(env[`CONTACT_${name}_EMAIL`] ?? ""),
     })),
     bookingMode: r.booking.mode as Config["bookingMode"],
     maxPriceIncreasePercent: r.booking.max_price_increase_percent,
@@ -101,9 +111,14 @@ export function validate(cfg: Config): void {
   if (overlap.length) p.push(`destinations in both lists: ${overlap.join(", ")}`);
   const bad = cfg.tripLengths.filter((n) => n < cfg.minTripDays || n > cfg.maxTripDays);
   if (bad.length) p.push(`trip_lengths_to_search outside min/max trip days: ${bad.join(", ")}`);
+  const badCh = cfg.channels.filter((c) => !["email", "sms", "call"].includes(c));
+  if (badCh.length || !cfg.channels.length) p.push("alerts.channels must list email, sms and/or call");
   if (!cfg.dryRun) {
     for (const c of cfg.contacts) {
-      if (!c.phone.startsWith("+")) p.push(`secret CONTACT_${c.name}_PHONE must be E.164, e.g. +12065550111`);
+      if (c.phone && !c.phone.startsWith("+")) p.push(`secret CONTACT_${c.name}_PHONE must be E.164, e.g. +12065550111`);
+    }
+    if (!cfg.contacts.some((c) => reachable(cfg, c))) {
+      p.push("no contact can be reached on alerts.channels (set CONTACT_<NAME>_EMAIL or _PHONE secrets)");
     }
   }
   if (p.length) throw new Error("Config problems:\n  - " + p.join("\n  - "));
@@ -119,7 +134,12 @@ export const isDomestic = (cfg: Config, iata: string) => cfg.domestic.includes(i
 export const maxPriceFor = (cfg: Config, dest: string) =>
   isDomestic(cfg, dest) ? cfg.domesticMaxPrice : cfg.internationalMaxPrice;
 export const contactByName = (cfg: Config, name: string) => cfg.contacts.find((c) => c.name === name);
-export const contactByPhone = (cfg: Config, phone: string) => cfg.contacts.find((c) => c.phone === phone);
+/** Can this contact get alerts on at least one enabled channel? */
+export const reachable = (cfg: Config, c: Contact) =>
+  (cfg.channels.includes("email") && !!c.email)
+  || ((cfg.channels.includes("sms") || cfg.channels.includes("call")) && !!c.phone);
+export const contactByPhone = (cfg: Config, phone: string) =>
+  phone ? cfg.contacts.find((c) => c.phone === phone) : undefined;
 
 export function loadTravelers(cfg: Config): Record<string, Traveler> {
   const raw = cfg.env.TRAVELERS_JSON;

@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import raw from "../config.json";
 import { buildConfig, type Config, type Env, type RawConfig } from "../src/config";
 import { Store } from "../src/store";
-import { ConsoleNotifier } from "../src/twilio";
+import { ConsoleNotifier } from "../src/notify";
 
 class Stmt {
   constructor(private db: DatabaseSync, private sql: string, private params: unknown[] = []) {}
@@ -43,6 +43,9 @@ export function testEnv(db = fakeD1()): Env {
     DUFFEL_ACCESS_TOKEN: "duffel_test_x",
     TRAVELERS_JSON: JSON.stringify(TRAVELERS),
     ADMIN_TOKEN: "admin_secret",
+    CONTACT_RAN_EMAIL: "ran@example.com",
+    LINK_SECRET: "link_secret",
+    RESEND_API_KEY: "re_test",
   };
 }
 

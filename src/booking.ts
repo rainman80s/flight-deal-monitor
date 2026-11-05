@@ -17,7 +17,7 @@ import { confirmText, linkText } from "./messages";
 import type { BookingProvider, Deal } from "./models";
 import { makeBookingProvider } from "./providers";
 import type { Store } from "./store";
-import type { Notifier } from "./twilio";
+import { type Notifier, tell } from "./notify";
 
 export const travelersFor = (cfg: Config, responder: string) =>
   cfg.bookingMode === "both" ? cfg.contacts.map((c) => c.name) : [responder];
@@ -28,11 +28,10 @@ export const maxTotal = (cfg: Config, d: Deal, travelers: string[]) =>
 /** Only a real purchase needs the second confirmation step. */
 export const needsConfirmation = (cfg: Config, d: Deal) => cfg.bookingEnabled && !cfg.dryRun && !d.is_fake;
 
-async function tell(cfg: Config, notifier: Notifier, names: string[], body: string) {
+async function notifyAll(cfg: Config, notifier: Notifier, names: string[], d: Deal, text: string) {
   for (const n of names) {
     const c = contactByName(cfg, n);
-    if (!c) continue;
-    try { await notifier.sms(c.phone, body); } catch (e) { console.error(`failed to text ${n}`, e); }
+    if (c) await tell(cfg, notifier, c, `Flight deal ${d.code} update`, text);
   }
 }
 
@@ -55,7 +54,7 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
     for (const t of travelers) {
       if (await store.claimBooking(d.id, t)) await store.finishBooking(d.id, t, "dry_run");
     }
-    await tell(cfg, notifier, [responder], status);
+    await notifyAll(cfg, notifier, [responder], d, status);
     return status;
   }
 
@@ -64,7 +63,7 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
       if (await store.claimBooking(d.id, t)) await store.finishBooking(d.id, t, "link_sent");
     }
     const status = linkText(d);
-    await tell(cfg, notifier, [responder], status);
+    await notifyAll(cfg, notifier, [responder], d, status);
     return status;
   }
 
@@ -74,14 +73,14 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
   if (claimed.length !== travelers.length) {
     for (const t of claimed) await store.releaseBooking(d.id, t);
     const status = `Deal ${d.code} is already booked (or being booked) for ${travelers.join(", ")}.`;
-    await tell(cfg, notifier, [responder], status);
+    await notifyAll(cfg, notifier, [responder], d, status);
     return status;
   }
 
   const abort = async (reason: string) => {
     for (const t of travelers) await store.releaseBooking(d.id, t);
     const msg = `Did NOT book ${d.code}: ${reason}`;
-    await tell(cfg, notifier, notifyWho, msg);
+    await notifyAll(cfg, notifier, notifyWho, d, msg);
     return msg;
   };
 
@@ -130,7 +129,7 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
       await store.finishBooking(d.id, t, "failed", { amount: perPerson, currency: fresh.currency, detail: m.slice(0, 500) });
     }
     const msg = `Booking ${d.code} FAILED or is uncertain (${m}). Check the Duffel dashboard before retrying.`;
-    await tell(cfg, notifier, notifyWho, msg);
+    await notifyAll(cfg, notifier, notifyWho, d, msg);
     return msg;
   }
 
@@ -141,6 +140,6 @@ export async function executeBuy(cfg: Config, store: Store, notifier: Notifier, 
   }
   const msg = `BOOKED ${d.origin}→${d.destination} ${d.depart_date} to ${d.return_date} for `
     + `${travelers.join(", ")}: $${fresh.total.toFixed(2)} ${fresh.currency}. Airline confirmation ${order.reference}.`;
-  await tell(cfg, notifier, notifyWho, msg);
+  await notifyAll(cfg, notifier, notifyWho, d, msg);
   return msg;
 }
