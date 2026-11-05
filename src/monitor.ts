@@ -74,6 +74,10 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   candidates.sort((a, b) => a.price / maxPriceFor(cfg, a.destination) - b.price / maxPriceFor(cfg, b.destination));
   const quiet = inQuietHours(cfg, now);
   for (const [i, f] of candidates.entries()) {
+    if (i < cfg.maxAlertsPerCycle && provider.bookingLink && f.offerId) {
+      try { f.bookingUrl = (await provider.bookingLink(f.offerId)) ?? f.bookingUrl; }
+      catch (e) { console.warn(`booking link for ${f.origin}-${f.destination} failed: ${e}`); }
+    }
     const d = await store.addDeal(f);
     if (i >= cfg.maxAlertsPerCycle) continue; // logged, not alerted; may alert on a later cycle
     await alert(cfg, store, notifier, d, !quiet && i < cfg.maxCallsPerCycle);

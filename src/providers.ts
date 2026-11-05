@@ -1,8 +1,9 @@
-/** Fare search providers: mock (fake data for dry runs), Duffel, Ignav (not written yet). */
+/** Fare search providers: mock (fake data for dry runs), Duffel, Ignav (src/ignav.ts). */
 import { type Config, secret } from "./config";
 import { DuffelProvider } from "./duffel";
 import { googleFlightsUrl } from "./messages";
-import { type Fare, type FareProvider, NotImplementedError, type SearchQuery } from "./models";
+import { IgnavProvider } from "./ignav";
+import type { Fare, FareProvider, SearchQuery } from "./models";
 
 const AIRLINES = ["AS", "DL", "UA", "AA", "WN", "F9", "NK", "B6", "HA", "WS"];
 
@@ -37,27 +38,12 @@ export class MockProvider implements FareProvider {
   }
 }
 
-/**
- * Ignav: NOT IMPLEMENTED YET. Its API docs couldn't be reached from the build
- * environment, so the request/response mapping hasn't been written. It's left
- * unimplemented on purpose, with no guessed field names. To finish: map a
- * SearchQuery to Ignav's round-trip request and its response to Fare[]
- * (per-person round-trip price). Booking still goes through Duffel.
- */
-export class IgnavProvider implements FareProvider {
-  name = "ignav";
-  constructor(private apiKey: string) {}
-  async search(_q: SearchQuery): Promise<Fare[]> {
-    throw new NotImplementedError(
-      "Ignav adapter not written yet; use provider 'duffel' or 'mock' (see src/providers.ts)");
-  }
-}
-
 export function makeFareProvider(cfg: Config): FareProvider {
   switch (cfg.provider) {
     case "mock": return new MockProvider(cfg);
     case "duffel": return new DuffelProvider(secret(cfg, "DUFFEL_ACCESS_TOKEN"), cfg.cabinClass, cfg.maxConnections);
-    case "ignav": return new IgnavProvider(secret(cfg, "IGNAV_API_KEY"));
+    case "ignav": return new IgnavProvider(secret(cfg, "IGNAV_API_KEY"), cfg.cabinClass, cfg.maxConnections,
+      Math.max(cfg.domesticMaxPrice, cfg.internationalMaxPrice));
   }
 }
 

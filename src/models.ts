@@ -50,6 +50,8 @@ export const routeKey = (f: { origin: string; destination: string; departDate: s
 export interface FareProvider {
   name: string;
   search(q: SearchQuery): Promise<Fare[]>;
+  /** Optional: a better booking URL (e.g. airline-direct) for a fare's offerId. */
+  bookingLink?(offerId: string): Promise<string | null>;
 }
 
 export interface BookingProvider {

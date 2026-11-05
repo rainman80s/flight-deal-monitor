@@ -1,4 +1,6 @@
-# Flight Deal Monitor
+# Flight Deal Monitor (Fare Radar)
+
+Live site: https://flight-deal-monitor.ranenbothel.workers.dev
 
 A Cloudflare Worker that watches round-trip fares from **Seattle (SEA)** and **Portland (PDX)**.
 When a fare beats your rules, it texts and calls Ran and Brock. Either of you can answer
@@ -24,7 +26,8 @@ When a fare beats your rules, it texts and calls Ran and Brock. Either of you ca
 | Booking via Duffel, with safety rails | ✅ built + tested with a fake booker; **not yet run against a real Duffel account** |
 | Duffel fare search | ✅ built; request shape tested; not yet run live |
 | Local end-to-end on Cloudflare's runtime (`wrangler dev`) | ✅ cron, admin, call script, simulated buy |
-| Ignav fare search (the cheaper option for high volume) | ⏳ not written yet: docs were unreachable from the build environment |
+| Ignav fare search (real fares, cheap at volume) | ✅ built from Ignav's OpenAPI spec + tested; endpoint verified live; **needs your `IGNAV_API_KEY`** |
+| Website: Browse deals + Sign up for alerts (liquid-glass UI) | ✅ live at the Worker's URL; double opt-in, unsubscribe, per-IP throttle |
 | Amex points comparison | ⏳ stage 2 |
 
 Everything ships in **dry-run mode**. Dry run searches with fake fares (labelled
@@ -77,6 +80,18 @@ curl -X POST -H "Authorization: Bearer local" localhost:8787/admin/test-email   
 ```
 
 Deploying: see [DEPLOY.md](DEPLOY.md).
+
+## Website
+
+`public/` holds a small static site (no build step) bundled into the Worker:
+
+- **Browse**: recent deals with filters (airport, domestic/international, max price, sort). A
+  banner says "Demo data" while fares come from the mock provider.
+- **Sign up**: email, home airports and price limits. A confirmation email (double opt-in)
+  activates alerts. Every alert has a one-tap unsubscribe. Subscribers get a booking link;
+  only the configured contacts get Buy buttons.
+- Until a sending domain is verified in Resend, Resend only delivers to the account
+  owner's address, so other people's confirmation emails fail with a clear message.
 
 ## Costs to know
 
