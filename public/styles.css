@@ -3,7 +3,6 @@
  * Design rules:
  *  - Liquid glass is the control layer only: nav, toolbar, buttons. Content is not glass.
  *  - One accent (sky blue). No gradient text, no decorative blobs, no ambient animation.
- *  - The route map is the one hero visual, drawn from real airport coordinates.
  *  - Deals read like a departures board: one dominant fare, then dense rows.
  */
 
@@ -20,12 +19,6 @@
   --accent-ink: #ffffff;
   --warn: #9a5b00;
 
-  --map-grid: rgba(17, 20, 24, .07);
-  --map-arc: rgba(10, 124, 255, .16);
-  --map-dot: rgba(17, 20, 24, .28);
-  --map-hot: #0a7cff;
-  --map-label: #111418;
-  --map-fade: #eef2f6;
 
   /* glass */
   --glass-fill: rgba(255, 255, 255, .58);
@@ -41,8 +34,6 @@
     --bg: #0d1117; --surface: #161b22; --surface-2: #1c222b;
     --fg: #e9edf2; --fg-2: #aab3be; --fg-3: #7d8792; --hair: rgba(255, 255, 255, .08);
     --accent: #3d9bff; --warn: #f0b45a;
-    --map-grid: rgba(255, 255, 255, .06); --map-arc: rgba(61, 155, 255, .2); --map-dot: rgba(255, 255, 255, .3);
-    --map-hot: #5aaeff; --map-label: #e9edf2; --map-fade: #0d1117;
     --glass-fill: rgba(30, 36, 46, .55); --glass-rim: rgba(255, 255, 255, .14); --glass-edge: rgba(0, 0, 0, .4);
     --glass-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 1px 2px rgba(0, 0, 0, .3);
   }
@@ -97,22 +88,8 @@ h2 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.015em; font
 }
 .segmented[data-active="signup"] .thumb { transform: translateX(100%); }
 
-/* ---------- map hero ---------- */
 .view { position: relative; }
-.map-band { margin-top: 0; margin-bottom: 26px; }
-.map { width: 100%; height: auto; display: block; }
-.map-cap { margin-top: 6px; font-size: 13px; color: var(--fg-3); }
-.map .grid { stroke: var(--map-grid); stroke-width: 1; fill: none; }
-.map .arc { stroke: var(--map-arc); stroke-width: 1.2; fill: none; }
-.map .arc.hot { stroke: var(--map-hot); stroke-width: 1.8; opacity: .85; }
-.map .dot { fill: var(--map-dot); }
-.map .dot.home { fill: var(--fg); }
-.map .dot.hot { fill: var(--map-hot); }
-.map text { font-family: var(--mono); font-size: 11px; fill: var(--map-label); }
-.map text.price { font-weight: 700; fill: var(--map-hot); }
-.map text.home-label { font-weight: 700; }
-
-.intro { padding: 48px 0 18px; }
+.intro { padding: 48px 0 30px; }
 .rules { margin: 16px 0 0; max-width: 36em; color: var(--fg-2); font-size: 17px; }
 .rules b { color: var(--fg); font-weight: 600; }
 .status { margin: 14px 0 0; font-size: 14px; color: var(--fg-3); }
@@ -252,7 +229,6 @@ input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; border-radius
   .signup { grid-template-columns: 1fr; gap: 32px; padding-top: 30px; }
 }
 @media (max-width: 600px) {
-  .map text { display: none; }
   .intro { padding-top: 30px; }
   .toolbar { position: static; padding: 8px; gap: 8px; }
   .toolbar .seg { flex: 1 1 auto; justify-content: space-between; }

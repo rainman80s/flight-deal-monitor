@@ -1,4 +1,4 @@
-// Fare Radar: route map, featured deal, departures board, and email sign-up.
+// Fare Radar: featured deal, departures board, and email sign-up.
 (() => {
   "use strict";
 
@@ -13,85 +13,7 @@
   const isGoogle = (url) => !url || /google\.com\/travel/.test(url);
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
-  // Airport coordinates [lat, lon] for the route map.
-  const AIRPORTS = {
-    SEA: [47.45, -122.31], PDX: [45.59, -122.6], LAX: [33.94, -118.41], SFO: [37.62, -122.38], SAN: [32.73, -117.19],
-    LAS: [36.08, -115.15], PHX: [33.43, -112.01], DEN: [39.86, -104.67], SLC: [40.79, -111.98], ANC: [61.17, -150],
-    HNL: [21.32, -157.92], OGG: [20.9, -156.43], DFW: [32.9, -97.04], AUS: [30.19, -97.67], ORD: [41.98, -87.9],
-    MSP: [44.88, -93.22], ATL: [33.64, -84.43], MIA: [25.79, -80.29], MCO: [28.43, -81.31], BOS: [42.36, -71.01],
-    JFK: [40.64, -73.78], EWR: [40.69, -74.17], DCA: [38.85, -77.04], MSY: [29.99, -90.26], BNA: [36.12, -86.68],
-    SJC: [37.36, -121.93], SMF: [38.7, -121.59], BOI: [43.56, -116.22], YVR: [49.19, -123.18], MEX: [19.44, -99.07],
-    CUN: [21.04, -86.87], SJD: [23.15, -109.72], PVR: [20.68, -105.25], GDL: [20.52, -103.31], LIR: [10.59, -85.54],
-    SJO: [9.99, -84.2], NRT: [35.77, 140.39], HND: [35.55, 139.78], KIX: [34.43, 135.23], ICN: [37.46, 126.44],
-    TPE: [25.08, 121.23], MNL: [14.51, 121.02], BKK: [13.69, 100.75], SIN: [1.36, 103.99], LHR: [51.47, -0.45],
-    DUB: [53.42, -6.27], KEF: [63.99, -22.61], CDG: [49.01, 2.55], AMS: [52.31, 4.76], FRA: [50.03, 8.57],
-    MAD: [40.47, -3.56], BCN: [41.3, 2.08], LIS: [38.77, -9.13], FCO: [41.8, 12.25], SYD: [-33.94, 151.18],
-    AKL: [-37.01, 174.79],
-  };
-
   const state = { origin: "", kind: "", sort: "recent", max: null, meta: null, deals: [] };
-
-  // ---------------- route map ----------------
-  // Equirectangular, centred on Seattle's longitude so Asia sits left and Europe right.
-  const W = 1000, H = 290, CENTER_LON = -122, LAT_TOP = 68, LAT_BOTTOM = -42;
-  function project([lat, lon]) {
-    const rel = ((lon - CENTER_LON + 540) % 360) - 180;
-    return [((rel + 180) / 360) * W, ((LAT_TOP - lat) / (LAT_TOP - LAT_BOTTOM)) * H];
-  }
-  const NS = "http://www.w3.org/2000/svg";
-  function svg(tag, attrs, text) {
-    const el = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-    if (text !== undefined) el.textContent = text;
-    return el;
-  }
-  function arcPath(a, b) {
-    const [x1, y1] = project(a), [x2, y2] = project(b);
-    const dist = Math.hypot(x2 - x1, y2 - y1);
-    const mx = (x1 + x2) / 2, my = Math.max(4, (y1 + y2) / 2 - Math.min(90, dist * 0.2));
-    return `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-  }
-
-  function drawMap(deals) {
-    const map = $("#map");
-    const origins = (state.meta?.origins ?? [{ code: "SEA" }, { code: "PDX" }]).map((o) => o.code);
-    const hot = new Map(); // destination -> cheapest deal
-    for (const d of deals) if (!hot.has(d.destination) || d.price < hot.get(d.destination).price) hot.set(d.destination, d);
-
-    const g = [];
-    for (let lon = -180; lon < 180; lon += 30) {
-      const x = ((lon + 180) / 360) * W;
-      g.push(svg("line", { class: "grid", x1: x, y1: 0, x2: x, y2: H }));
-    }
-    for (let lat = -30; lat <= 60; lat += 30) {
-      const y = ((LAT_TOP - lat) / (LAT_TOP - LAT_BOTTOM)) * H;
-      g.push(svg("line", { class: "grid", x1: 0, y1: y, x2: W, y2: y }));
-    }
-    const dests = Object.keys(AIRPORTS).filter((c) => !origins.includes(c));
-    const home = AIRPORTS.SEA;
-    for (const c of dests) if (!hot.has(c)) g.push(svg("path", { class: "arc", d: arcPath(home, AIRPORTS[c]) }));
-    for (const [c, d] of hot) if (AIRPORTS[c]) g.push(svg("path", { class: "arc hot", d: arcPath(AIRPORTS[d.origin] ?? home, AIRPORTS[c]) }));
-    for (const c of dests) {
-      const [x, y] = project(AIRPORTS[c]);
-      g.push(svg("circle", { class: hot.has(c) ? "dot hot" : "dot", cx: x, cy: y, r: hot.has(c) ? 3.5 : 2 }));
-    }
-    // Price labels for current deals; skip ones that would collide.
-    const placed = [];
-    for (const [c, d] of [...hot].sort((a, b) => a[1].price - b[1].price)) {
-      const [x, y] = project(AIRPORTS[c] ?? home);
-      if (placed.some(([px, py]) => Math.abs(px - x) < 70 && Math.abs(py - y) < 16)) continue;
-      placed.push([x, y]);
-      g.push(svg("text", { x: x + 7, y: y - 6 }, c));
-      g.push(svg("text", { class: "price", x: x + 7 + c.length * 7.4, y: y - 6 }, ` ${money(d.price)}`));
-    }
-    for (const c of origins) {
-      const [x, y] = project(AIRPORTS[c]);
-      g.push(svg("circle", { class: "dot home", cx: x, cy: y, r: 4 }));
-    }
-    const [sx, sy] = project(AIRPORTS.SEA);
-    g.push(svg("text", { class: "home-label", x: sx + 8, y: sy - 8 }, "SEA · PDX"));
-    map.replaceChildren(...g);
-  }
 
   // ---------------- routing ----------------
   function route() {
@@ -186,7 +108,6 @@
     renderBest(deals);
     $("#rows").replaceChildren(...deals.map(row));
     $("#empty").hidden = deals.length > 0;
-    drawMap(deals);
     renderPreview(deals);
   }
 
@@ -336,6 +257,5 @@
   });
   wireSignup();
   route();
-  drawMap([]);
   loadMeta().then(loadDeals);
 })();
