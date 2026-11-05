@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fare Radar</title>
+  <meta name="description" content="Cheap round-trip flights from Seattle and Portland, checked every 30 minutes.">
+  <meta name="theme-color" content="#e9eef6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0c10" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2364d2ff'/%3E%3Cstop offset='1' stop-color='%230a84ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Cpath d='M14 36l36-14-10 28-7-10-10-2z' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span>
+  </div>
+
+  <header class="nav glass">
+    <a class="brand" href="#browse" aria-label="Fare Radar home">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M3 13.5 21 6l-5 14-3.5-5L7 13.8z" fill="currentColor"/></svg>
+      </span>
+      <span>Fare Radar</span>
+    </a>
+    <nav class="segmented" role="tablist" aria-label="Sections">
+      <span class="thumb" aria-hidden="true"></span>
+      <a role="tab" href="#browse" data-tab="browse">Browse</a>
+      <a role="tab" href="#signup" data-tab="signup">Sign up</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-browse" class="view" aria-labelledby="hero-title">
+      <div class="hero">
+        <p class="eyebrow">Seattle · Portland</p>
+        <h1 id="hero-title">Cheap flights,<br><span class="grad">found while you sleep.</span></h1>
+        <p class="lede">We check round trips to <b id="stat-dest">50+</b> destinations every 30 minutes.
+          Domestic under <b id="stat-dom">$100</b>, international under <b id="stat-intl">$300</b>,
+          30+ days out, two weeks or less.</p>
+        <div class="chips">
+          <span class="chip glass"><span class="dot live"></span><span id="stat-checks">Watching now</span></span>
+          <span class="chip glass" id="stat-subs-chip" hidden><span id="stat-subs"></span></span>
+          <a class="chip glass chip-cta" href="#signup">Get alerts →</a>
+        </div>
+      </div>
+
+      <div id="demo-banner" class="banner glass" hidden>
+        <b>Demo data.</b> Live fares aren't connected yet, so these deals are generated for testing and aren't bookable.
+      </div>
+
+      <div class="filters glass" role="group" aria-label="Filter deals">
+        <div class="field">
+          <span class="label" id="lbl-origin">From</span>
+          <div class="pills" data-filter="origin" role="radiogroup" aria-labelledby="lbl-origin"></div>
+        </div>
+        <div class="field">
+          <span class="label" id="lbl-kind">Type</span>
+          <div class="pills" data-filter="kind" role="radiogroup" aria-labelledby="lbl-kind">
+            <button type="button" role="radio" data-value="" aria-checked="true">All</button>
+            <button type="button" role="radio" data-value="domestic" aria-checked="false">Domestic</button>
+            <button type="button" role="radio" data-value="international" aria-checked="false">International</button>
+          </div>
+        </div>
+        <div class="field grow">
+          <label class="label" for="max">Max price <output id="max-out" for="max">Any</output></label>
+          <input id="max" type="range" min="50" max="300" step="10" value="300">
+        </div>
+        <div class="field">
+          <span class="label" id="lbl-sort">Sort</span>
+          <div class="pills" data-filter="sort" role="radiogroup" aria-labelledby="lbl-sort">
+            <button type="button" role="radio" data-value="recent" aria-checked="true">Newest</button>
+            <button type="button" role="radio" data-value="price" aria-checked="false">Cheapest</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="deals" class="grid" aria-live="polite"></div>
+      <div id="empty" class="empty glass" hidden>
+        <h3>No deals match yet</h3>
+        <p>Fares this cheap are rare. Loosen the filters, or <a href="#signup">get an email</a> the moment one shows up.</p>
+      </div>
+    </section>
+
+    <section id="view-signup" class="view" aria-labelledby="signup-title" hidden>
+      <div class="signup-wrap">
+        <div class="pitch">
+          <p class="eyebrow">Free alerts</p>
+          <h1 id="signup-title">Be first to the<br><span class="grad">cheap seats.</span></h1>
+          <ul class="perks">
+            <li><span class="perk-icon">⏱</span><div><b>Every 30 minutes</b><br>Fares are re-checked around the clock.</div></li>
+            <li><span class="perk-icon">🎯</span><div><b>Your limits</b><br>Only fares under the prices you pick.</div></li>
+            <li><span class="perk-icon">🗓</span><div><b>Plan-able trips</b><br>30+ days out, home within two weeks.</div></li>
+            <li><span class="perk-icon">✉︎</span><div><b>One email per deal</b><br>Unsubscribe any time, in one tap.</div></li>
+          </ul>
+        </div>
+
+        <form id="signup-form" class="form glass" novalidate>
+          <h2>Get deal alerts</h2>
+          <label class="label" for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" inputmode="email"
+                 placeholder="you@example.com" required>
+
+          <span class="label" id="lbl-home">Home airports</span>
+          <div class="pills toggles" id="home" role="group" aria-labelledby="lbl-home"></div>
+
+          <label class="label" for="dom">Domestic under <output id="dom-out" for="dom">$100</output></label>
+          <input id="dom" name="domestic_max" type="range" min="20" max="100" step="5" value="100">
+
+          <label class="label" for="intl">International under <output id="intl-out" for="intl">$300</output></label>
+          <input id="intl" name="international_max" type="range" min="50" max="300" step="10" value="300">
+
+          <div class="hp" aria-hidden="true">
+            <label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off">
+          </div>
+
+          <button class="btn-primary" type="submit"><span>Sign me up</span></button>
+          <p id="form-msg" class="form-msg" role="status" aria-live="polite"></p>
+          <p class="fine">We'll send one email to confirm. Prices are round trip, per person.</p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Fare Radar · prices move fast, so always check before you book.</span>
+  </footer>
+
+  <template id="deal-tpl">
+    <article class="deal glass">
+      <div class="deal-top">
+        <span class="tag"></span>
+        <span class="fake-tag" hidden>Demo</span>
+      </div>
+      <div class="route">
+        <div class="end"><span class="code o"></span><span class="city oc"></span></div>
+        <div class="path" aria-hidden="true"><span class="line"></span>
+          <svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" fill="currentColor"/></svg>
+          <span class="line"></span></div>
+        <div class="end right"><span class="code d"></span><span class="city dc"></span></div>
+      </div>
+      <div class="price-row">
+        <div><span class="price"></span><span class="rt">round trip</span></div>
+        <span class="days"></span>
+      </div>
+      <dl class="meta">
+        <div><dt>Leave</dt><dd class="dep"></dd></div>
+        <div><dt>Return</dt><dd class="ret"></dd></div>
+        <div><dt>Stops</dt><dd class="stops"></dd></div>
+        <div><dt>Airline</dt><dd class="air"></dd></div>
+      </dl>
+      <a class="btn-glass view" target="_blank" rel="noopener">View on Google Flights ↗</a>
+    </article>
+  </template>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

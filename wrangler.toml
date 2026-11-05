@@ -2,6 +2,13 @@ name = "flight-deal-monitor"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
+# The website (Browse + Sign up) lives in public/ and is bundled into the Worker as
+# text (see src/static.ts), so a single `wrangler deploy` ships everything.
+[[rules]]
+type = "Text"
+globs = ["**/public/*.html", "**/public/*.css", "**/public/*.js"]
+fallthrough = false
+
 # How often a search cycle runs (UTC cron). Every 30 minutes:
 [triggers]
 crons = ["*/30 * * * *"]

@@ -1,5 +1,5 @@
 /** Test helpers: a D1-compatible database backed by node:sqlite, plus config builders. */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import raw from "../config.json";
 import { buildConfig, type Config, type Env, type RawConfig } from "../src/config";
@@ -20,7 +20,10 @@ class Stmt {
 
 export function fakeD1(): D1Database {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+  const dir = new URL("../migrations/", import.meta.url);
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+    db.exec(readFileSync(new URL(f, dir), "utf8"));
+  }
   return { prepare: (sql: string) => new Stmt(db, sql) } as unknown as D1Database;
 }
 

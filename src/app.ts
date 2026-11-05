@@ -25,7 +25,11 @@ import { dealSpeech } from "./messages";
 import type { BookingProvider, Deal, FareProvider } from "./models";
 import { runCycle } from "./monitor";
 import type { Store } from "./store";
+import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
+import { siteRoute } from "./site";
+import { staticFile } from "./static";
+import type { SubscriberStore } from "./subscribers";
 import { buyMeaning, city, dealEmail } from "./messages";
 import { type Notifier, ResendEmailer } from "./notify";
 import { gather, message, pause, redirect, say, twiml, validTwilioRequest } from "./twilio";
@@ -34,6 +38,7 @@ export interface Deps {
   cfg: Config;
   store: Store;
   notifier: Notifier;
+  subs?: SubscriberStore;
   fareProvider: () => FareProvider;
   bookingProvider?: BookingProvider;
   /** Run work after the response is sent (ctx.waitUntil in production). */
@@ -51,6 +56,16 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   if (path === "/health") {
     return json({ ok: true, dry_run: cfg.dryRun, booking_enabled: cfg.bookingEnabled,
                   cycle: await store.getState("cycle") ?? "0" });
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    const file = staticFile(path);
+    if (file) return file;
+  }
+
+  if (path.startsWith("/api/") || path.startsWith("/u/")) {
+    const res = await siteRoute(req, url, deps);
+    if (res) return res;
   }
 
   if (path.startsWith("/admin/")) {
@@ -185,7 +200,7 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     return json({ deals: await store.recentDeals(20), bookings: await store.bookings(20) });
   }
   if (url.pathname === "/admin/run" && req.method === "POST") {
-    const r = await runCycle(cfg, store, deps.fareProvider(), notifier);
+    const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), deps.subs);
     return json({ ...r, deals: r.deals.map((d) => `${d.code} ${d.origin}-${d.destination} $${d.price}`) });
   }
   if (url.pathname === "/admin/test-email" && req.method === "POST") {
@@ -220,22 +235,6 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
 }
 
 // ---------------- email buttons ----------------
-
-const escHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const PAGE_CSS = `body{font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;`
-  + `color:#1a1a1a;background:#fff}button{font-size:17px;padding:12px 28px;border:0;border-radius:8px;`
-  + `color:#fff;font-weight:600;cursor:pointer}.buy{background:#1a7f37}.skip{background:#6e7781}`
-  + `.muted{color:#555;font-size:14px}a{color:#0969da}@media (prefers-color-scheme:dark){`
-  + `body{background:#0d1117;color:#e6edf3}.muted{color:#9da7b3}a{color:#58a6ff}}`;
-
-function page(title: string, body: string, status = 200): Response {
-  return new Response(`<!doctype html><html><head><meta charset="utf-8">`
-    + `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)}</title>`
-    + `<style>${PAGE_CSS}</style></head><body>${body}</body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
-}
 
 async function emailAction(req: Request, url: URL, code: string, deps: Deps): Promise<Response> {
   const { cfg, store, notifier } = deps;

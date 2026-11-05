@@ -15,6 +15,24 @@ async function sign(key: string, code: string, who: string, action: string): Pro
   return b64url(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(`${code}|${who}|${action}`)));
 }
 
+/** Signed token for subscriber links (confirm / unsubscribe). */
+export async function subscriberToken(cfg: Config, id: number, purpose: "confirm" | "unsubscribe") {
+  return sign(secret(cfg, "LINK_SECRET"), `sub${id}`, purpose, "v1");
+}
+
+export async function verifySubscriberToken(cfg: Config, id: number, purpose: string, token: string) {
+  const key = cfg.env.LINK_SECRET;
+  if (typeof key !== "string" || !key || !token || !Number.isInteger(id)) return false;
+  return safeEqual(await sign(key, `sub${id}`, purpose, "v1"), token);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 export async function actionUrl(cfg: Config, code: string, who: string, action: LinkAction): Promise<string> {
   const base = secret(cfg, "PUBLIC_BASE_URL").replace(/\/$/, "");
   const t = await sign(secret(cfg, "LINK_SECRET"), code, who, action);

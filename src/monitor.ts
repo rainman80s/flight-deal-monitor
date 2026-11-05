@@ -7,10 +7,12 @@ import { type Deal, type Fare, type FareProvider, NotImplementedError } from "./
 import { planCycle } from "./planner";
 import { cheapestPerRoute, rejectionReason } from "./rules";
 import type { Store } from "./store";
+import { notifySubscribers, type SubscriberStore } from "./subscribers";
 import type { Notifier } from "./notify";
 
 export interface CycleResult {
   cycle: number; searches: number; errors: number; faresSeen: number; deals: Deal[]; suppressed: number;
+  subscribersEmailed: number;
 }
 
 export function inQuietHours(cfg: Config, now: Date): boolean {
@@ -43,10 +45,10 @@ async function alert(cfg: Config, store: Store, notifier: Notifier, d: Deal, cal
 }
 
 export async function runCycle(cfg: Config, store: Store, provider: FareProvider, notifier: Notifier,
-                               now = new Date()): Promise<CycleResult> {
+                               now = new Date(), subs?: SubscriberStore): Promise<CycleResult> {
   const today = localParts(now, cfg.timezone).date;
   const cycle = await store.nextCycle();
-  const r: CycleResult = { cycle, searches: 0, errors: 0, faresSeen: 0, deals: [], suppressed: 0 };
+  const r: CycleResult = { cycle, searches: 0, errors: 0, faresSeen: 0, deals: [], suppressed: 0, subscribersEmailed: 0 };
 
   const queries = planCycle(cfg, cycle, today);
   // Run searches concurrently; one failure doesn't sink the cycle.
@@ -75,6 +77,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     const d = await store.addDeal(f);
     if (i >= cfg.maxAlertsPerCycle) continue; // logged, not alerted; may alert on a later cycle
     await alert(cfg, store, notifier, d, !quiet && i < cfg.maxCallsPerCycle);
+    if (subs) r.subscribersEmailed += await notifySubscribers(cfg, subs, notifier, d);
     r.deals.push((await store.deal(d.id))!);
   }
 
