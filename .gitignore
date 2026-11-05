@@ -6,3 +6,5 @@ travelers.toml
 config.toml
 data/
 .pytest_cache/
+*.bundle
+*.zip
