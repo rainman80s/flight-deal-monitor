@@ -19,6 +19,7 @@
  * failed requests aren't billed. Ignav never tickets; booking still goes through Duffel.
  */
 import type { Budget } from "./budget";
+import type { CalendarDay, NewCheck } from "./checks";
 import { addDays } from "./dates";
 import { googleFlightsUrl } from "./messages";
 import type { Fare, FareProvider, SearchQuery } from "./models";
@@ -46,6 +47,8 @@ export class IgnavProvider implements FareProvider {
   private verifyLeft: number;
   /** One line per calendar search this run, for the run report and logs. */
   readonly notes: string[] = [];
+  /** Calendar results from this run, saved by the cycle so the site can show them. */
+  readonly checks: NewCheck[] = [];
 
   constructor(private apiKey: string, private cabinClass = "economy", private maxStops = 1,
               private maxPrice: number | null = null,
@@ -75,27 +78,42 @@ export class IgnavProvider implements FareProvider {
     return q.windowDays && q.stayDays ? this.calendar(q) : this.exact(q);
   }
 
-  /** One calendar request; confirm the cheapest under-limit date with one exact search. */
+  /**
+   * One calendar request: the lowest round-trip fare for each departure date in the window.
+   * No max_price on purpose: a request costs the same either way, and the full picture is
+   * what the site shows. Non-USD or missing prices come back as null.
+   */
+  async calendarDays(origin: string, destination: string, start: string, windowDays: number,
+                     stayDays: number): Promise<CalendarDay[]> {
+    const data = await this.post<{ dates?: CalendarDate[] }>("/fares/cheapest-dates", {
+      origin, destination,
+      departure_date_range: { start, end: addDays(start, windowDays - 1) },
+      stay_days: stayDays, adults: 1, cabin_class: this.cabinClass, max_stops: this.maxStops, market: "US",
+    });
+    return (data.dates ?? []).map((d) => ({
+      d: d.departure_date,
+      r: d.return_date ?? addDays(d.departure_date, stayDays),
+      p: d.price && d.price.currency === "USD" && d.price.amount > 0 ? d.price.amount : null,
+    }));
+  }
+
+  /** Background scan: one calendar request; confirm the cheapest under-limit date with one exact search. */
   private async calendar(q: SearchQuery): Promise<Fare[]> {
     const limit = q.maxPrice ?? this.maxPrice ?? Infinity;
-    const body: Record<string, unknown> = {
-      origin: q.origin, destination: q.destination,
-      departure_date_range: { start: q.departDate, end: addDays(q.departDate, q.windowDays! - 1) },
-      stay_days: q.stayDays, adults: 1, cabin_class: this.cabinClass, max_stops: this.maxStops, market: "US",
-    };
-    // No max_price here on purpose: a request costs the same either way, and seeing the
-    // real cheapest fare per window makes each run's report meaningful. We filter below.
-    const data = await this.post<{ dates?: CalendarDate[] }>("/fares/cheapest-dates", body);
-    const priced = (data.dates ?? []).filter((d) => d.price && d.price.currency === "USD" && d.price.amount > 0);
-    const sorted = [...priced].sort((a, b) => a.price!.amount - b.price!.amount);
+    const days = await this.calendarDays(q.origin, q.destination, q.departDate, q.windowDays!, q.stayDays!);
+    this.checks.push({ origin: q.origin, destination: q.destination, windowStart: q.departDate,
+      windowDays: q.windowDays!, stayDays: q.stayDays!, days,
+      limit: Number.isFinite(limit) ? limit : null, source: "scan" });
+    const sorted = days.filter((x) => x.p !== null).sort((a, b) => a.p! - b.p!);
     const cheapest = sorted[0];
     const note = `${q.origin}-${q.destination} from ${q.departDate} (${q.windowDays} days), ${q.stayDays}-day trips: `
-      + `${priced.length}/${data.dates?.length ?? 0} dates priced`
-      + (cheapest ? `, cheapest $${Math.round(cheapest.price!.amount)} leaving ${cheapest.departure_date}` : "")
+      + `${sorted.length}/${days.length} dates priced`
+      + (cheapest ? `, cheapest $${Math.round(cheapest.p!)} leaving ${cheapest.d}` : "")
       + ` (limit $${limit})`;
     this.notes.push(note);
     console.log(note);
-    const best = sorted.find((d) => d.price!.amount < limit);
+    const hit = sorted.find((x) => x.p! < limit);
+    const best = hit && { departure_date: hit.d, return_date: hit.r, price: { amount: hit.p! } };
     if (!best) return [];
     if (this.verifyLeft <= 0) {
       console.log(`calendar ${q.origin}-${q.destination} ${best.departure_date} ~$${best.price!.amount}: `

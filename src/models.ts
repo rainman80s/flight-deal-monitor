@@ -60,6 +60,8 @@ export interface FareProvider {
   bookingLink?(offerId: string): Promise<string | null>;
   /** Optional: human-readable lines about this run's searches. */
   readonly notes?: string[];
+  /** Optional: calendar results from this run, saved for the site. */
+  readonly checks?: import("./checks").NewCheck[];
 }
 
 export interface BookingProvider {

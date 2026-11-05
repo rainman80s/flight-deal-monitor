@@ -9,10 +9,13 @@
  */
 import type { Deps } from "./app";
 import { type Config, isDomestic } from "./config";
-import { daysBetween } from "./dates";
+import { Budget, BudgetExceeded } from "./budget";
+import { type CalendarDay, CheckStore } from "./checks";
+import { addDays, daysBetween, utcDate } from "./dates";
 import { escHtml, page } from "./html";
 import { verifySubscriberToken } from "./links";
-import { city } from "./messages";
+import { IgnavProvider } from "./ignav";
+import { city, googleFlightsUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
 import { confirmationEmail, EMAIL_RE, SubscriberStore } from "./subscribers";
@@ -58,6 +61,15 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       destinations: cfg.domestic.length + cfg.international.length,
       demo: cfg.dryRun || cfg.provider === "mock",
       subscribers: (await subs.counts()).active,
+      destination_list: [...cfg.domestic.map((c) => ({ code: c, city: city(c), kind: "domestic" })),
+        ...cfg.international.map((c) => ({ code: c, city: city(c), kind: "international" }))],
+      search: {
+        enabled: cfg.provider === "ignav",
+        left_today: Math.max(0, cfg.siteSearchesPerDay - (await siteSearchBudget(cfg).usage()).today),
+        per_day: cfg.siteSearchesPerDay,
+        cache_hours: cfg.searchCacheHours,
+      },
+      checks_total: await new CheckStore(cfg.env.DB).count(),
       cycle: Number(await store.getState("cycle") ?? 0),
       last_checked_at: await store.getState("last_cycle_at"),
       searches_per_cycle: cfg.searchesPerCycle,
@@ -126,6 +138,21 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     return json({ ok: true, status: "check_email" });
   }
 
+  if (p === "/api/checks" && req.method === "GET") {
+    const limit = intIn(url.searchParams.get("limit"), 1, 50) ?? 12;
+    const checks = (await new CheckStore(cfg.env.DB).recent(limit)).map((c) => ({
+      origin: c.origin, origin_city: city(c.origin), destination: c.destination, destination_city: city(c.destination),
+      kind: isDomestic(cfg, c.destination) ? "domestic" : "international",
+      window_start: c.window_start, window_end: addDays(c.window_start, c.window_days - 1), stay_days: c.stay_days,
+      cheapest: c.cheapest, cheapest_date: c.cheapest_date,
+      cheapest_return: c.cheapest_date ? addDays(c.cheapest_date, c.stay_days) : null,
+      limit: c.price_limit, checked_at: c.checked_at,
+    }));
+    return json({ checks }, 200, { "Cache-Control": "public, max-age=60" });
+  }
+
+  if (p === "/api/search" && req.method === "POST") return siteSearch(req, deps);
+
   const sub = p.match(/^\/u\/(confirm|unsubscribe)$/);
   if (sub && (req.method === "GET" || req.method === "POST")) {
     const purpose = sub[1] as "confirm" | "unsubscribe";
@@ -156,4 +183,88 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
   }
 
   return null;
+}
+
+// ---------------- on-site fare search ----------------
+
+/** Live searches the whole site may make per day (on top of the global Ignav budget). */
+export const siteSearchBudget = (cfg: Config) =>
+  new Budget(cfg.env.DB, "site_search", cfg.siteSearchesPerDay, Number.MAX_SAFE_INTEGER);
+
+async function visitorBudget(cfg: Config, ip: string) {
+  // Store a short hash, not the raw IP.
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${String(cfg.env.LINK_SECRET ?? "")}`));
+  const tag = [...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return new Budget(cfg.env.DB, `visitor_search_${tag}`, cfg.siteSearchesPerVisitor, Number.MAX_SAFE_INTEGER);
+}
+
+const lastOfMonth = (ym: string) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+};
+
+async function siteSearch(req: Request, deps: Deps): Promise<Response> {
+  const { cfg } = deps;
+  let body: Record<string, unknown>;
+  try { body = await req.json(); } catch { return json({ ok: false, error: "Bad request." }, 400); }
+
+  const origin = String(body.origin ?? "").toUpperCase();
+  const destination = String(body.destination ?? "").toUpperCase();
+  const month = String(body.month ?? "");
+  const stay = intIn(body.stay_days, 1, cfg.maxTripDays);
+  if (!cfg.origins.includes(origin)) return json({ ok: false, error: "Pick Seattle or Portland." }, 400);
+  if (![...cfg.domestic, ...cfg.international].includes(destination)) {
+    return json({ ok: false, error: "Pick a destination from the list." }, 400);
+  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json({ ok: false, error: "Pick a month." }, 400);
+  if (stay === null) return json({ ok: false, error: `Trip length must be 1 to ${cfg.maxTripDays} days.` }, 400);
+
+  const today = utcDate(new Date());
+  const first = `${month}-01`;
+  const start = first > today ? first : addDays(today, 1);
+  const end = lastOfMonth(month);
+  if (start > end) return json({ ok: false, error: "That month has already passed." }, 400);
+  if (daysBetween(today, start) > 330) return json({ ok: false, error: "Fares aren't published that far out yet." }, 400);
+  const windowDays = daysBetween(start, end) + 1;
+  const limit = isDomestic(cfg, destination) ? cfg.domesticMaxPrice : cfg.internationalMaxPrice;
+  const store = new CheckStore(cfg.env.DB);
+  const reply = (days: CalendarDay[], checkedAt: string, cached: boolean, left: number) => json({
+    ok: true, cached, checked_at: checkedAt, origin, destination, origin_city: city(origin),
+    destination_city: city(destination), stay_days: stay, limit, searches_left_today: left,
+    days: days.map((x) => ({ ...x, url: googleFlightsUrl(origin, destination, x.d, x.r ?? addDays(x.d, stay)) })),
+  });
+  const siteBudget = siteSearchBudget(cfg);
+  const leftToday = async () => Math.max(0, cfg.siteSearchesPerDay - (await siteBudget.usage()).today);
+
+  // Recent identical search (by anyone): free.
+  const hit = await store.fresh(origin, destination, start, windowDays, stay, cfg.searchCacheHours);
+  if (hit) return reply(JSON.parse(hit.dates), hit.checked_at, true, await leftToday());
+
+  const provider = deps.fareProvider();
+  if (!(provider instanceof IgnavProvider)) {
+    return json({ ok: false, error: "Live search isn't switched on yet." }, 503);
+  }
+  const visitor = await visitorBudget(cfg, req.headers.get("CF-Connecting-IP") ?? "local");
+  try { await visitor.take(); } catch {
+    return json({ ok: false, error: `You've used today's ${cfg.siteSearchesPerVisitor} live searches. `
+      + "Recent results still load instantly." }, 429);
+  }
+  try { await siteBudget.take(); } catch {
+    await visitor.refund();
+    return json({ ok: false, error: "The site has used today's live searches. Try again tomorrow." }, 429);
+  }
+  try {
+    const days = await provider.calendarDays(origin, destination, start, windowDays, stay);
+    await store.save({ origin, destination, windowStart: start, windowDays, stayDays: stay, days, limit,
+      source: "search" });
+    return reply(days, new Date().toISOString(), false, await leftToday());
+  } catch (e) {
+    await visitor.refund();
+    await siteBudget.refund();
+    if (e instanceof BudgetExceeded) {
+      return json({ ok: false, error: "Today's search budget is used up. Try again tomorrow." }, 429);
+    }
+    console.error("site search failed", e);
+    return json({ ok: false, error: "The fare search didn't respond. Try again in a minute." }, 502);
+  }
 }

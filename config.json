@@ -111,9 +111,12 @@
   },
   "budget": {
     "_note": "Ignav requests. Calendar = 1 request per route x 31 departure dates; verify = 1 exact search per promising date; link = 1 per alerted deal.",
-    "ignav_daily_requests": 30,
+    "ignav_daily_requests": 45,
     "ignav_total_requests": 950,
     "calendar_searches_per_run": 2,
-    "verifications_per_run": 2
+    "verifications_per_run": 2,
+    "site_searches_per_day": 15,
+    "site_searches_per_visitor_per_day": 5,
+    "search_cache_hours": 12
   }
 }

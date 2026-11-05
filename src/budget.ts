@@ -42,6 +42,13 @@ export class Budget {
     }
   }
 
+  /** Give back one reserved request (for when the work never happened). */
+  async refund(): Promise<void> {
+    const k = this.keys();
+    await this.unbump(k.day);
+    await this.unbump(k.total);
+  }
+
   async usage(): Promise<BudgetUsage> {
     const k = this.keys();
     const get = async (key: string) => Number((await this.db.prepare("SELECT value FROM state WHERE key=?")

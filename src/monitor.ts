@@ -9,6 +9,7 @@ import { cheapestPerRoute, rejectionReason } from "./rules";
 import type { Store } from "./store";
 import { notifySubscribers, type SubscriberStore } from "./subscribers";
 import { BudgetExceeded } from "./budget";
+import { CheckStore } from "./checks";
 import type { Notifier } from "./notify";
 
 export interface CycleResult {
@@ -99,6 +100,12 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   }
 
   if (provider.notes?.length) r.notes = [...provider.notes];
+  if (provider.checks?.length) {
+    const saved = new CheckStore(cfg.env.DB);
+    for (const c of provider.checks) {
+      try { await saved.save(c, now); } catch (e) { console.error("saving price check failed", e); }
+    }
+  }
   console.log(`cycle ${cycle}: ${r.searches} searches (${r.errors} errors), ${r.faresSeen} fares, `
     + `${r.deals.length} alerted, ${r.suppressed} already-known`);
   return r;

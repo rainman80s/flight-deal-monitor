@@ -31,8 +31,28 @@
       <p id="demo-note" class="demo-note" hidden>These fares are generated test data. Live search isn't switched on yet, so none of them are bookable.</p>
     </div>
 
+    <section class="page search" aria-labelledby="search-title">
+      <h2 id="search-title">Check a route</h2>
+      <p class="section-sub">Prices every departure date in a month for one trip length. Results from the last
+        <span id="cache-hours">12</span> hours load instantly; a new check uses one of today's
+        <span id="search-left">15</span> live searches.</p>
+      <form id="search-form" class="search-form" novalidate>
+        <label class="pick"><span class="field-label">From</span><select id="s-from" required></select></label>
+        <label class="pick grow"><span class="field-label">To</span><select id="s-to" required></select></label>
+        <label class="pick"><span class="field-label">Leaving in</span><select id="s-month" required></select></label>
+        <label class="pick"><span class="field-label">Trip length</span><select id="s-stay" required></select></label>
+        <button class="btn primary" type="submit" id="s-go">Search</button>
+      </form>
+      <p id="s-msg" class="s-msg" role="status" aria-live="polite"></p>
+      <div id="s-results" class="s-results" hidden>
+        <p class="s-summary" id="s-summary"></p>
+        <div class="cal" id="s-cal" role="list" aria-label="Price by departure date"></div>
+        <p class="sub" id="s-foot"></p>
+      </div>
+    </section>
 
     <div class="page">
+      <h2 class="section-title">Deals under the limit</h2>
       <div class="toolbar glass" role="group" aria-label="Filter deals">
         <div class="seg" data-filter="origin" role="radiogroup" aria-label="Departing from"></div>
         <div class="seg" data-filter="kind" role="radiogroup" aria-label="Domestic or international">
@@ -69,8 +89,17 @@
           <span>Route</span><span>Dates</span><span>Stops</span><span>Airline</span><span class="r">Round trip</span><span></span>
         </div>
         <ol id="rows" class="rows" aria-label="Deals"></ol>
-        <p id="empty" class="empty" hidden>Nothing under these filters yet. Fares this low show up a few times a week,
-          so <a href="#signup">get an email</a> when the next one lands.</p>
+        <p id="empty" class="empty" hidden></p>
+      </div>
+
+      <h2 class="section-title" id="checks-title">Recently checked</h2>
+      <p class="section-sub">The cheapest round trip each background check found, whether or not it beat the limit.</p>
+      <div class="board checks" id="checks-board">
+        <div class="board-head" aria-hidden="true">
+          <span>Route</span><span>Departures checked</span><span class="r">Cheapest found</span><span class="r">Limit</span><span class="r">Checked</span>
+        </div>
+        <ol id="checks" class="rows" aria-labelledby="checks-title"></ol>
+        <p id="checks-empty" class="empty" hidden>No checks yet. The first one runs within two hours.</p>
       </div>
     </div>
   </section>

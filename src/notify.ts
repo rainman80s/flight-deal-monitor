@@ -62,14 +62,22 @@ export class LiveNotifier implements Notifier {
   }
 }
 
+/** Build a client only if its keys exist, so a missing key breaks sending, not the whole site. */
+function optional<T>(make: () => T): T | undefined {
+  try { return make(); } catch (e) {
+    console.error(`notifier not configured: ${(e as Error).message}`);
+    return undefined;
+  }
+}
+
 export function makeNotifier(cfg: Config): Notifier {
   if (cfg.dryRun) return new ConsoleNotifier();
   const emailer = cfg.channels.includes("email")
-    ? new ResendEmailer(secret(cfg, "RESEND_API_KEY"), String(cfg.env.EMAIL_FROM ?? cfg.emailFrom))
+    ? optional(() => new ResendEmailer(secret(cfg, "RESEND_API_KEY"), String(cfg.env.EMAIL_FROM ?? cfg.emailFrom)))
     : undefined;
   const twilio = cfg.channels.includes("sms") || cfg.channels.includes("call")
-    ? new TwilioNotifier(secret(cfg, "TWILIO_ACCOUNT_SID"), secret(cfg, "TWILIO_AUTH_TOKEN"),
-        secret(cfg, "TWILIO_FROM_NUMBER"), secret(cfg, "PUBLIC_BASE_URL"))
+    ? optional(() => new TwilioNotifier(secret(cfg, "TWILIO_ACCOUNT_SID"), secret(cfg, "TWILIO_AUTH_TOKEN"),
+        secret(cfg, "TWILIO_FROM_NUMBER"), secret(cfg, "PUBLIC_BASE_URL")))
     : undefined;
   return new LiveNotifier(emailer, twilio);
 }

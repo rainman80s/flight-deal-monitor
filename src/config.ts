@@ -40,6 +40,9 @@ export interface Config {
   ignavTotal: number;
   calendarPerRun: number;
   verifyPerRun: number;
+  siteSearchesPerDay: number;
+  siteSearchesPerVisitor: number;
+  searchCacheHours: number;
   domesticMaxPrice: number;
   internationalMaxPrice: number;
   minDaysOut: number;
@@ -82,6 +85,9 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     ignavTotal: r.budget.ignav_total_requests,
     calendarPerRun: r.budget.calendar_searches_per_run,
     verifyPerRun: r.budget.verifications_per_run,
+    siteSearchesPerDay: r.budget.site_searches_per_day,
+    siteSearchesPerVisitor: r.budget.site_searches_per_visitor_per_day,
+    searchCacheHours: r.budget.search_cache_hours,
     domesticMaxPrice: r.rules.domestic_max_price,
     internationalMaxPrice: r.rules.international_max_price,
     minDaysOut: r.rules.min_days_out,
