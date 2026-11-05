@@ -5,6 +5,7 @@
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const money = (n) => `$${Math.round(n)}`;
+  const cents = (n) => `$${Number(n).toFixed(2)}`;
   const fmt = (iso, opts) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", ...opts });
   const short = (iso) => fmt(iso, { weekday: "short", month: "short", day: "numeric" });
   const stops = (n) => (n === 0 ? "nonstop" : `${n} stop${n > 1 ? "s" : ""}`);
@@ -149,16 +150,29 @@
     $("#best-detail").textContent = `${short(best.depart_date)} to ${short(best.return_date)} · ${best.trip_days} days · `
       + `${stopsPair(best)} · ${best.airlines.join(", ") || "airline varies"}`;
     $("#best-price").textContent = money(best.price);
-    setLink($("#best-link"), best.booking_url, best.is_fake, true);
+    setLink($("#best-link"), best.booking_url, best.is_fake, true, best.is_fake ? null : tripOf(best));
   }
 
-  function setLink(a, url, fake, long = false) {
+  function setLink(a, url, fake, long = false, trip = null) {
+    // Signed-in owners get a Buy button that opens the booking sheet instead of a link out.
+    if (trip && canBook()) {
+      a.textContent = "Buy";
+      a.removeAttribute("aria-disabled");
+      a.href = "#browse";
+      a.onclick = (e) => { e.preventDefault(); openBook(trip); };
+      a.title = "";
+      return;
+    }
+    a.onclick = null;
     const u = safeUrl(url);
     a.textContent = isGoogle(u) ? (long ? "Search Google Flights" : "Search") : (long ? "Book with the airline" : "Book");
     if (u) { a.href = u; a.removeAttribute("aria-disabled"); }
     else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
     a.title = fake ? "Test fare: the search link won't show this price" : "";
   }
+
+  const tripOf = (d) => ({ origin: d.origin, destination: d.destination, origin_city: d.origin_city,
+    destination_city: d.destination_city, depart: d.depart_date, ret: d.return_date });
 
   function row(d) {
     const n = $("#row-tpl").content.firstElementChild.cloneNode(true);
@@ -172,7 +186,7 @@
     $(".c-stops", n).textContent = stopsPair(d);
     $(".c-air", n).textContent = d.airlines.join(", ") || "—";
     $(".c-price", n).textContent = money(d.price);
-    setLink($("a", n), d.booking_url, d.is_fake);
+    setLink($("a", n), d.booking_url, d.is_fake, false, d.is_fake ? null : tripOf(d));
     $("a", n).setAttribute("aria-label", `Book ${d.origin_city} to ${d.destination_city}, ${money(d.price)}`);
     return n;
   }
@@ -216,7 +230,7 @@
         cell("k-dates", txt("dates", `${monthDay(c.window_start)} – ${monthDay(c.window_end)}`),
           txt("sub", `${c.stay_days}-day trips`)),
         cell("k-price num", txt(under ? "under" : "over", c.cheapest === null ? "no fares" : money(c.cheapest)),
-          txt("sub", c.cheapest_date ? `leaving ${short(c.cheapest_date)}` : "")),
+          txt("sub", c.cheapest_date ? `leaving ${short(c.cheapest_date)}` : ""), ...buyButton(c)),
         cell("k-limit num", txt("sub", c.limit ? money(c.limit) : "—")),
         cell("k-when num", txt("sub", ago(c.checked_at))),
       );
@@ -333,7 +347,13 @@
       cells.push(g);
     }
     for (const x of data.days) {
-      const el = document.createElement(x.p !== null && /^https:\/\//.test(x.url) ? "a" : "span");
+      const owner = canBook() && x.p !== null;
+      const el = document.createElement(owner ? "button" : x.p !== null && /^https:\/\//.test(x.url) ? "a" : "span");
+      if (owner) {
+        el.type = "button";
+        el.addEventListener("click", () => openBook({ origin: data.origin, destination: data.destination,
+          origin_city: data.origin_city, destination_city: data.destination_city, depart: x.d, ret: x.r }));
+      }
       el.className = "day";
       el.setAttribute("role", "listitem");
       if (x.p === null) el.classList.add("none");
@@ -341,6 +361,7 @@
       else if (x.p === min) el.classList.add("min");
       else if (cheap !== null && x.p <= cheap) el.classList.add("low");
       if (el.tagName === "A") { el.href = x.url; el.target = "_blank"; el.rel = "noopener"; }
+      if (owner) el.title = "Book this date";
       const n = document.createElement("span");
       n.className = "n";
       n.textContent = fmt(x.d, { month: "short", day: "numeric" });
@@ -355,6 +376,252 @@
     $("#s-foot").textContent = `${data.cached ? "Saved result" : "Checked live"} ${ago(data.checked_at)}. `
       + "Prices are Ignav's estimates for the cheapest fare that day; tap a date to see it on Google Flights.";
     $("#s-results").hidden = false;
+  }
+
+  // ---------------- owner sign-in ----------------
+  state.me = { signed_in: false };
+  const canBook = () => !!state.me.signed_in;
+  const title = (s) => s.charAt(0) + s.slice(1).toLowerCase();
+
+  async function loadMe() {
+    try { state.me = await (await fetch("/api/me", { credentials: "same-origin" })).json(); } catch { /* signed out */ }
+    const btn = $("#account-btn");
+    btn.textContent = state.me.signed_in ? `${title(state.me.name)} · Sign out` : "Sign in";
+  }
+
+  function buyButton(c) {
+    if (!canBook() || !c.cheapest_date) return [];
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn small buy-small";
+    b.textContent = "Buy";
+    b.style.marginTop = "4px";
+    b.addEventListener("click", () => openBook({ origin: c.origin, destination: c.destination, origin_city: c.origin_city,
+      destination_city: c.destination_city, depart: c.cheapest_date, ret: c.cheapest_return }));
+    return [b];
+  }
+
+  function wireAccount() {
+    $("#account-btn").addEventListener("click", async () => {
+      if (state.me.signed_in) {
+        await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+        location.reload();
+        return;
+      }
+      $("#signin-msg").textContent = "";
+      $("#signin-dlg").showModal();
+    });
+    $("#signin-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = $("#signin-email");
+      const msg = $("#signin-msg");
+      msg.className = "form-msg";
+      if (!email.value || !email.checkValidity()) {
+        msg.textContent = "Enter your email address.";
+        msg.classList.add("err");
+        return;
+      }
+      const btn = $("button[type=submit]", e.target);
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/login", { method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value.trim() }) });
+        const data = await r.json().catch(() => ({}));
+        msg.textContent = data.ok
+          ? "If that email can book on this site, a sign-in link is on its way. It works for 20 minutes."
+          : data.error || "That didn't go through. Try again.";
+        msg.classList.add(data.ok ? "ok" : "err");
+      } catch {
+        msg.textContent = "Couldn't reach the server.";
+        msg.classList.add("err");
+      } finally { btn.disabled = false; }
+    });
+    wireBooking();
+  }
+
+  // ---------------- booking sheet ----------------
+  let trip = null, offers = [], chosen = null;
+  const hm = (s) => (s || "").slice(11, 16);
+  const dur = (iso) => {
+    const m = /PT(?:(\d+)H)?(?:(\d+)M)?/.exec(iso || "");
+    return m ? `${m[1] ? `${m[1]}h` : ""}${m[1] && m[2] ? " " : ""}${m[2] ? `${m[2]}m` : ""}` : "";
+  };
+
+  function openBook(t) {
+    if (!t.ret || t.ret <= t.depart) {
+      const d = new Date(`${t.depart}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 7);
+      t = { ...t, ret: d.toISOString().slice(0, 10) };
+    }
+    trip = t;
+    offers = [];
+    chosen = null;
+    const b = state.me.booking || {};
+    $("#book-title").textContent = `${t.origin_city || t.origin} → ${t.destination_city || t.destination}`;
+    $("#b-depart").value = t.depart;
+    $("#b-return").value = t.ret;
+    $("#b-depart").min = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    $("#b-pct").textContent = b.max_price_increase_percent ?? 5;
+    const g = $("#b-google");
+    g.href = `https://www.google.com/travel/flights?q=${encodeURIComponent(
+      `Flights from ${t.origin} to ${t.destination} on ${t.depart} through ${t.ret}`)}`;
+
+    const mode = $("#book-mode");
+    mode.hidden = b.test_mode === null || b.test_mode === undefined;
+    mode.className = `mode-note${b.test_mode === false ? " live" : ""}`;
+    mode.textContent = b.test_mode
+      ? "Test mode: bookings go to Duffel's test system. Flights are fake and no money moves."
+      : "Live mode: purchases are real and charged to your Duffel balance.";
+
+    const problems = [];
+    if (!b.duffel) problems.push("Add your Duffel access token as the <code>DUFFEL_ACCESS_TOKEN</code> secret in Cloudflare.");
+    if (!b.enabled) problems.push("Purchasing is switched off in <code>config.json</code> (<code>booking_enabled</code>).");
+    if (!(b.travelers || []).some((x) => x.ready)) {
+      problems.push("Add passenger details (names exactly as on ID) as the <code>TRAVELERS_JSON</code> secret.");
+    }
+    const setup = $("#book-setup");
+    setup.hidden = !problems.length;
+    setup.innerHTML = problems.length ? `<b>Before you can buy:</b><br>${problems.join("<br>")}` : "";
+
+    $("#b-travelers").replaceChildren(...(b.travelers || []).map((x) => {
+      const l = document.createElement("label");
+      l.className = `chk${x.ready ? "" : " off"}`;
+      const i = document.createElement("input");
+      i.type = "checkbox";
+      i.value = x.name;
+      i.disabled = !x.ready;
+      i.checked = x.ready && x.name === state.me.name;
+      l.append(i, ` ${title(x.name)}${x.ready ? "" : " (no details)"}`);
+      return l;
+    }));
+    $("#b-find").disabled = !!problems.length && !b.duffel;
+    $("#b-msg").textContent = "";
+    $("#b-offers").replaceChildren();
+    $("#b-confirm").hidden = true;
+    $("#b-result").textContent = "";
+    $("#book-dlg").showModal();
+  }
+
+  const travelersPicked = () => $$("#b-travelers input:checked").map((i) => i.value);
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return r.json().catch(() => ({ ok: false, error: "Unexpected response." }));
+  }
+
+  function wireBooking() {
+    $("#book-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $("#b-msg");
+      msg.className = "s-msg";
+      const travelers = travelersPicked();
+      if (!travelers.length) { msg.textContent = "Pick who's flying."; msg.classList.add("err"); return; }
+      trip.depart = $("#b-depart").value;
+      trip.ret = $("#b-return").value;
+      $("#b-find").disabled = true;
+      $("#b-confirm").hidden = true;
+      $("#b-result").textContent = "";
+      msg.textContent = "Getting live fares from the airlines…";
+      try {
+        const data = await post("/api/offers", { origin: trip.origin, destination: trip.destination,
+          depart_date: trip.depart, return_date: trip.ret, travelers });
+        if (!data.ok) { msg.textContent = data.error; msg.classList.add("err"); return; }
+        offers = data.offers;
+        trip.travelers = travelers;
+        msg.textContent = offers.length ? `${offers.length} options, cheapest first. Prices are for ${travelers.length === 1 ? "one person" : `${travelers.length} people`}, round trip.`
+          : "No bookable flights for those dates. Try other dates.";
+        renderOffers();
+      } catch {
+        msg.textContent = "Couldn't reach the server.";
+        msg.classList.add("err");
+      } finally { $("#b-find").disabled = false; }
+    });
+
+    $("#b-buy").addEventListener("click", async () => {
+      if (!chosen) return;
+      const btn = $("#b-buy");
+      const out = $("#b-result");
+      btn.disabled = true;
+      out.className = "b-result";
+      out.textContent = "Re-checking the price and booking…";
+      try {
+        const data = await post("/api/book", { offer_id: chosen.id, travelers: trip.travelers, expected_total: chosen.total,
+          origin: trip.origin, destination: trip.destination, depart_date: trip.depart, return_date: trip.ret });
+        out.textContent = data.message || data.error || "Something went wrong.";
+        out.classList.add(data.ok ? "ok" : "err");
+        if (data.ok) { $("#b-confirm").hidden = true; $("#b-offers").replaceChildren(); }
+      } catch {
+        out.textContent = "Couldn't reach the server. Check your email and the Duffel dashboard before trying again.";
+        out.classList.add("err");
+      } finally { btn.disabled = false; }
+    });
+  }
+
+  function renderOffers() {
+    const list = $("#b-offers");
+    list.setAttribute("role", "radiogroup");
+    list.replaceChildren(...offers.map((o) => {
+      const li = document.createElement("li");
+      li.className = "offer";
+      li.setAttribute("role", "radio");
+      li.setAttribute("aria-checked", "false");
+      li.tabIndex = 0;
+      const legs = document.createElement("div");
+      legs.className = "legs";
+      for (const s of o.slices) {
+        const leg = document.createElement("div");
+        leg.className = "leg";
+        const when = document.createElement("b");
+        when.textContent = `${fmt(s.depart_at.slice(0, 10), { weekday: "short", month: "short", day: "numeric" })} `
+          + `${hm(s.depart_at)} → ${hm(s.arrive_at)}`;
+        const info = document.createElement("span");
+        info.className = "sub";
+        info.textContent = `${s.from}–${s.to} · ${dur(s.duration)} · ${stops(s.stops)} · ${s.flights.join(", ")}`;
+        leg.append(when, info);
+        legs.append(leg);
+      }
+      const price = document.createElement("div");
+      price.className = "o-price";
+      const b = document.createElement("b");
+      b.textContent = cents(o.total);
+      const sp = document.createElement("span");
+      sp.textContent = o.currency === "USD" ? "total" : o.currency;
+      price.append(b, sp);
+      const meta = document.createElement("div");
+      meta.className = "o-meta";
+      meta.textContent = [o.airline,
+        o.refundable === true ? "refundable" : o.refundable === false ? "nonrefundable" : "refund rules unknown",
+        o.changeable === true ? "changes allowed" : o.changeable === false ? "no changes" : null,
+        o.needs_passport ? "needs passport details" : null].filter(Boolean).join(" · ");
+      li.append(legs, price, meta);
+      const pick = () => {
+        chosen = o;
+        $$(".offer", list).forEach((x) => x.setAttribute("aria-checked", String(x === li)));
+        showConfirm();
+      };
+      li.addEventListener("click", pick);
+      li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+      return li;
+    }));
+  }
+
+  function showConfirm() {
+    const o = chosen;
+    const who = trip.travelers.map(title).join(" and ");
+    $("#b-summary").textContent = `${trip.origin_city || trip.origin} → ${trip.destination_city || trip.destination}, `
+      + `${short(trip.depart)} to ${short(trip.ret)}, for ${who}. ${o.airline}. Total ${cents(o.total)}.`;
+    const terms = [
+      o.refundable === true ? "Refundable before departure (airline penalties may apply)." : "Likely nonrefundable.",
+      o.changeable === true ? "Changes allowed before departure (fees may apply)." : "Changes may not be allowed.",
+      o.needs_passport ? "This airline needs passport details for every traveler." : null,
+      o.test_mode ? "Test mode: no money moves." : "This charges your Duffel balance.",
+    ].filter(Boolean);
+    $("#b-terms").replaceChildren(...terms.map((t) => { const li = document.createElement("li"); li.textContent = t; return li; }));
+    $("#b-buy").textContent = `${o.test_mode ? "Test buy" : "Buy"} for ${cents(o.total)}`;
+    $("#b-confirm").hidden = false;
+    $("#b-result").textContent = "";
+    $("#b-confirm").scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   // ---------------- sign up ----------------
@@ -438,5 +705,6 @@
   wireSignup();
   route();
   wireSearch();
-  loadMeta().then(() => Promise.all([loadDeals(), loadChecks()]));
+  wireAccount();
+  Promise.all([loadMeta(), loadMe()]).then(() => Promise.all([loadDeals(), loadChecks()]));
 })();

@@ -28,6 +28,7 @@ import type { Store } from "./store";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
 import { ignavBudget } from "./providers";
+import { ownerRoute } from "./owner";
 import { siteRoute } from "./site";
 import { staticFile } from "./static";
 import type { SubscriberStore } from "./subscribers";
@@ -65,7 +66,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (path.startsWith("/api/") || path.startsWith("/u/")) {
-    const res = await siteRoute(req, url, deps);
+    const res = (await ownerRoute(req, url, deps)) ?? (await siteRoute(req, url, deps));
     if (res) return res;
   }
 

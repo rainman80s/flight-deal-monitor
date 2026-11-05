@@ -7,6 +7,8 @@ export type Channel = "email" | "sms" | "call";
 export interface Traveler {
   title: string; given_name: string; family_name: string; born_on: string;
   gender: string; email: string; phone_number: string;
+  /** Only needed for flights where the airline requires passport details (mostly international). */
+  passport_number?: string; passport_expires_on?: string; passport_country?: string;
 }
 
 /** Everything the Worker reads from its environment (bindings + secrets). */

@@ -99,6 +99,32 @@ At this pace the free tier lasts about a month. After that Ignav charges $2 per 
 30/day costs about $1.80/month. Raising `calendar_searches_per_run` (and the daily cap)
 is the lever for faster coverage.
 
+## Buying from the site
+
+Only the configured contacts can buy. They sign in with a one-time email link
+(`Sign in` in the nav), which sets a signed 30-day cookie. Once signed in, every price on
+the page gets a **Buy** button that opens a booking sheet:
+
+1. Pick dates and who's flying, then **Find flights**: real bookable offers from Duffel
+   (times, stops, airline, refund/change rules).
+2. Pick one; a confirm panel shows the total and terms.
+3. **Buy**: the server re-fetches the offer and refuses if the price rose more than
+   `max_price_increase_percent`, if it would pass `daily_spend_cap` (real money only), or if
+   that offer was already booked. Then it books via Duffel (paid from your Duffel balance)
+   and emails the airline confirmation.
+
+Needs these Cloudflare secrets:
+
+- `DUFFEL_ACCESS_TOKEN`: start with a test token (`duffel_test_…`). Test mode books fake
+  flights and the site labels it clearly.
+- `TRAVELERS_JSON`: passenger details keyed by contact name, names exactly as on ID.
+  Add `passport_number`, `passport_expires_on` (YYYY-MM-DD) and `passport_country`
+  (2-letter) for airlines that require them.
+
+```json
+{"RAN":{"title":"mr","given_name":"First","family_name":"Last","born_on":"1995-01-31","gender":"m","email":"you@example.com","phone_number":"+12065550111"}}
+```
+
 ## Website
 
 `public/` holds a small static site (no build step) bundled into the Worker:

@@ -1,7 +1,7 @@
 {
   "mode": {
     "dry_run": false,
-    "booking_enabled": false
+    "booking_enabled": true
   },
   "search": {
     "provider": "ignav",

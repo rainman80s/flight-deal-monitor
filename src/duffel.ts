@@ -16,13 +16,66 @@ import type { BookingProvider, Fare, FareProvider, SearchQuery } from "./models"
 const API = "https://api.duffel.com";
 const VERSION = "v2";
 
-interface DuffelSegment { marketing_carrier?: { iata_code?: string | null; name?: string } }
-interface DuffelOffer {
+interface DuffelAirport { iata_code?: string | null; city_name?: string | null; name?: string | null }
+interface DuffelSegment {
+  marketing_carrier?: { iata_code?: string | null; name?: string };
+  marketing_carrier_flight_number?: string | null;
+  origin?: DuffelAirport;
+  destination?: DuffelAirport;
+  departing_at?: string;
+  arriving_at?: string;
+  duration?: string | null;
+}
+interface DuffelCondition { allowed?: boolean; penalty_amount?: string | null; penalty_currency?: string | null }
+export interface DuffelOffer {
   id: string;
+  live_mode?: boolean;
   total_amount: string;
   total_currency: string;
-  slices: { segments: DuffelSegment[] }[];
+  expires_at?: string;
+  owner?: { name?: string; iata_code?: string | null };
+  conditions?: { refund_before_departure?: DuffelCondition | null; change_before_departure?: DuffelCondition | null };
+  passenger_identity_documents_required?: boolean;
+  slices: { duration?: string | null; segments: DuffelSegment[] }[];
   passengers: { id: string }[];
+}
+
+/** What the booking sheet shows for one offer. */
+export interface OfferView {
+  id: string;
+  total: number;
+  currency: string;
+  expires_at: string | null;
+  airline: string;
+  refundable: boolean | null;
+  changeable: boolean | null;
+  needs_passport: boolean;
+  test_mode: boolean;
+  slices: { from: string; to: string; depart_at: string; arrive_at: string; duration: string | null;
+            stops: number; flights: string[] }[];
+}
+
+export function viewOffer(o: DuffelOffer): OfferView {
+  return {
+    id: o.id,
+    total: Number(o.total_amount),
+    currency: o.total_currency,
+    expires_at: o.expires_at ?? null,
+    airline: o.owner?.name ?? "",
+    refundable: o.conditions?.refund_before_departure?.allowed ?? null,
+    changeable: o.conditions?.change_before_departure?.allowed ?? null,
+    needs_passport: !!o.passenger_identity_documents_required,
+    test_mode: o.live_mode === false,
+    slices: o.slices.map((s) => {
+      const first = s.segments[0], last = s.segments[s.segments.length - 1];
+      return {
+        from: first?.origin?.iata_code ?? "", to: last?.destination?.iata_code ?? "",
+        depart_at: first?.departing_at ?? "", arrive_at: last?.arriving_at ?? "",
+        duration: s.duration ?? null, stops: Math.max(0, s.segments.length - 1),
+        flights: s.segments.map((g) => `${g.marketing_carrier?.iata_code ?? ""}${g.marketing_carrier_flight_number ?? ""}`),
+      };
+    }),
+  };
 }
 
 export class DuffelProvider implements FareProvider, BookingProvider {
@@ -30,16 +83,19 @@ export class DuffelProvider implements FareProvider, BookingProvider {
   constructor(private token: string, private cabinClass = "economy", private maxConnections = 1,
               private fetcher: typeof fetch = fetch.bind(globalThis)) {}
 
-  private async post<T>(path: string, data: unknown): Promise<T> {
+  /** Test tokens book fake flights and move no money. */
+  get testMode() { return this.token.startsWith("duffel_test_"); }
+
+  private async call<T>(method: "GET" | "POST", path: string, data?: unknown): Promise<T> {
     const res = await this.fetcher(`${API}${path}`, {
-      method: "POST",
+      method,
       headers: {
         Authorization: `Bearer ${this.token}`,
         "Duffel-Version": VERSION,
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ data }),
+      body: data === undefined ? undefined : JSON.stringify({ data }),
     });
     const body = await res.json() as { data?: T; errors?: { title?: string; message?: string }[] };
     if (!res.ok || !body.data) {
@@ -47,6 +103,19 @@ export class DuffelProvider implements FareProvider, BookingProvider {
       throw new Error(`Duffel ${path} ${res.status}: ${e?.title ?? ""} ${e?.message ?? ""}`.trim());
     }
     return body.data;
+  }
+
+  private post<T>(path: string, data: unknown) { return this.call<T>("POST", path, data); }
+
+  /** Bookable offers for exact dates, cheapest first. */
+  async listOffers(origin: string, dest: string, depart: string, ret: string, passengers: number, limit = 8) {
+    const offers = await this.offers(origin, dest, depart, ret, passengers);
+    return offers.sort((a, b) => Number(a.total_amount) - Number(b.total_amount)).slice(0, limit);
+  }
+
+  /** The latest version of one offer (Duffel refreshes price and availability). */
+  getOffer(id: string) {
+    return this.call<DuffelOffer>("GET", `/air/offers/${encodeURIComponent(id)}`);
   }
 
   private async offers(origin: string, dest: string, depart: string, ret: string, passengers = 1) {
@@ -98,7 +167,7 @@ export class DuffelProvider implements FareProvider, BookingProvider {
     };
   }
 
-  async book(offerId: string, amount: number, currency: string, passengers: Record<string, string>[]) {
+  async book(offerId: string, amount: number, currency: string, passengers: Record<string, unknown>[]) {
     const order = await this.post<{ id: string; booking_reference: string }>("/air/orders", {
       type: "instant",
       selected_offers: [offerId],

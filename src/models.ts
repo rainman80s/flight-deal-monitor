@@ -69,7 +69,7 @@ export interface BookingProvider {
   reprice(origin: string, destination: string, depart: string, ret: string, passengers: number):
     Promise<{ offerId: string; total: number; currency: string; passengerIds: string[] } | null>;
   /** Pay for and ticket the offer. */
-  book(offerId: string, amount: number, currency: string, passengers: Record<string, string>[]):
+  book(offerId: string, amount: number, currency: string, passengers: Record<string, unknown>[]):
     Promise<{ orderId: string; reference: string }>;
 }
 

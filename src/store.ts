@@ -119,7 +119,10 @@ export class Store {
   /** Total booked on a UTC calendar day. */
   async spentOn(day: string): Promise<number> {
     const r = await this.db.prepare(
-      "SELECT COALESCE(SUM(amount),0) AS s FROM bookings WHERE status='booked' AND substr(at,1,10)=?",
+      `SELECT
+         (SELECT COALESCE(SUM(amount),0) FROM bookings WHERE status='booked' AND substr(at,1,10)=?1)
+       + (SELECT COALESCE(SUM(amount),0) FROM orders WHERE status IN ('booked','pending') AND test_mode=0
+            AND substr(created_at,1,10)=?1) AS s`,
     ).bind(day).first<{ s: number }>();
     return Number(r?.s ?? 0);
   }

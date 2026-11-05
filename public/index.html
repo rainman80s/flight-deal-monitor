@@ -13,12 +13,57 @@
 <body>
   <header class="nav glass">
     <a class="wordmark" href="#browse">Fare Radar</a>
-    <nav class="segmented" aria-label="Sections">
-      <span class="thumb" aria-hidden="true"></span>
-      <a href="#browse" data-tab="browse">Deals</a>
-      <a href="#signup" data-tab="signup">Email alerts</a>
-    </nav>
+    <div class="nav-right">
+      <nav class="segmented" aria-label="Sections">
+        <span class="thumb" aria-hidden="true"></span>
+        <a href="#browse" data-tab="browse">Deals</a>
+        <a href="#signup" data-tab="signup">Email alerts</a>
+      </nav>
+      <button type="button" class="btn glass-btn small" id="account-btn">Sign in</button>
+    </div>
   </header>
+
+  <!-- sign in (owners only) -->
+  <dialog id="signin-dlg" class="sheet glass" aria-labelledby="signin-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <h2 id="signin-title">Sign in to book</h2>
+    <p class="muted-p">Booking is limited to the people this site is set up for. Enter your email and we'll send a
+      one-time sign-in link.</p>
+    <form id="signin-form" novalidate>
+      <label class="field-label" for="signin-email">Email</label>
+      <input id="signin-email" type="email" autocomplete="email" inputmode="email" required>
+      <button class="btn primary" type="submit">Email me a link</button>
+      <p id="signin-msg" class="form-msg" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <!-- booking sheet -->
+  <dialog id="book-dlg" class="sheet glass wide" aria-labelledby="book-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <h2 id="book-title">Book</h2>
+    <p id="book-mode" class="mode-note" hidden></p>
+    <div id="book-setup" class="setup-note" hidden></div>
+
+    <form id="book-form" class="book-form" novalidate>
+      <label class="pick"><span class="field-label">Leave</span><input type="date" id="b-depart" required></label>
+      <label class="pick"><span class="field-label">Return</span><input type="date" id="b-return" required></label>
+      <fieldset class="pick travelers"><legend class="field-label">Who's flying</legend><div id="b-travelers"></div></fieldset>
+      <button class="btn primary" type="submit" id="b-find">Find flights</button>
+    </form>
+    <p id="b-msg" class="s-msg" role="status" aria-live="polite"></p>
+
+    <ol id="b-offers" class="offers" aria-label="Flights"></ol>
+
+    <section id="b-confirm" class="confirm" hidden aria-labelledby="b-confirm-title">
+      <h3 id="b-confirm-title">Confirm purchase</h3>
+      <p id="b-summary"></p>
+      <ul class="terms" id="b-terms"></ul>
+      <button class="btn buy" type="button" id="b-buy">Buy</button>
+      <p class="fine">The price is re-checked before paying. If it rose more than <span id="b-pct">5</span>%, nothing is bought.</p>
+    </section>
+    <p id="b-result" class="b-result" role="status" aria-live="polite"></p>
+    <p class="fine"><a id="b-google" target="_blank" rel="noopener">Compare on Google Flights ↗</a></p>
+  </dialog>
 
   <!-- ===================== Deals ===================== -->
   <section id="view-browse" class="view" aria-labelledby="deals-title">
