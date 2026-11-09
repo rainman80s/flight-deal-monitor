@@ -1,4 +1,4 @@
-// Fare Radar: featured deal, departures board, and email sign-up.
+// Fare Radar: hero, deal columns, route search, logic, account and email sign-up.
 (() => {
   "use strict";
 
@@ -29,7 +29,8 @@
     $(".segmented").dataset.active = tab;
     $$(".segmented a").forEach((a) => (a.dataset.tab === tab
       ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-    window.scrollTo(0, 0);
+    if (location.hash === "#deals") $("#deals").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    else window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", route);
 
@@ -68,14 +69,8 @@
     try {
       const m = await (await fetch("/api/meta")).json();
       state.meta = m;
-      $("#lim-dom").textContent = money(m.domestic_max);
-      $("#lim-intl").textContent = money(m.international_max);
-      $("#n-routes").textContent = m.routes;
-      $("#days-out").textContent = `${m.min_days_out} to ${m.max_days_out}`;
       $("#n-dest").textContent = m.destinations;
-      $("#last-checked").textContent = m.last_checked_at
-        ? `Last search ${ago(m.last_checked_at)}. ${m.cycle.toLocaleString()} runs so far, about ${m.runs_per_day} a day.`
-        : "The first search hasn't run yet.";
+      $("#last-checked").textContent = m.last_checked_at ? `Fares updated ${ago(m.last_checked_at)}` : "";
       $("#demo-note").hidden = !m.demo;
       setupSearch(m);
 
@@ -91,7 +86,7 @@
         $(`${id}-out`).textContent = money(v);
       }
     } catch {
-      $("#last-checked").textContent = "Couldn't load search status.";
+      $("#last-checked").textContent = "";
     }
   }
 

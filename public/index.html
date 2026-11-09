@@ -4,15 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fare Radar</title>
-  <meta name="description" content="Round-trip fares from Seattle and Portland under $100 in the US and $300 abroad, searched every 30 minutes.">
-  <meta name="theme-color" content="#eef2f6" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d1117" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock.">
+  <meta name="theme-color" content="#0e1d22">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap">
+  <link rel="preload" href="/bg.jpg" as="image">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a7cff'/%3E%3Cpath d='M12 46 C 24 18, 40 18, 52 30' stroke='white' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='46' r='5' fill='white'/%3E%3Ccircle cx='52' cy='30' r='5' fill='white'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="nav glass">
-    <a class="wordmark" href="#browse">Fare Radar</a>
+    <a class="wordmark" href="#browse" aria-label="Fare Radar home"><span>Fare Radar</span></a>
     <div class="nav-right">
       <nav class="segmented" aria-label="Sections">
         <span class="thumb" aria-hidden="true"></span>
@@ -68,37 +71,18 @@
 
   <!-- ===================== Deals ===================== -->
   <section id="view-browse" class="view" aria-labelledby="deals-title">
-    <div class="intro page">
-      <h1 id="deals-title">Round trips from Seattle and Portland, under&nbsp;<span id="lim-dom">$100</span> in the US and&nbsp;<span id="lim-intl">$300</span> abroad.</h1>
-      <p class="rules">Several times a day we pull Google Flights' cheapest round trips from Seattle and Portland to
-        everywhere, and every hour in between we price <b id="n-routes">108</b> routes across a month of departure dates.
-        Trips leave <span id="days-out">30 to 150</span> days out and come home within two weeks. Fares that beat the
-        limit are double-checked, then land here and in subscribers' inboxes.</p>
-      <p class="status"><span id="last-checked">Searching…</span></p>
-      <p id="demo-note" class="demo-note" hidden>These fares are generated test data. Live search isn't switched on yet, so none of them are bookable.</p>
-    </div>
-
-    <section class="page search" aria-labelledby="search-title">
-      <h2 id="search-title">Check a route</h2>
-      <p class="section-sub">Prices every departure date in a month for one trip length. Results from the last
-        <span id="cache-hours">12</span> hours load instantly; a new check uses one of today's
-        <span id="search-left">15</span> live searches.</p>
-      <form id="search-form" class="search-form" novalidate>
-        <label class="pick"><span class="field-label">From</span><select id="s-from" required></select></label>
-        <label class="pick grow"><span class="field-label">To</span><select id="s-to" required></select></label>
-        <label class="pick"><span class="field-label">Leaving in</span><select id="s-month" required></select></label>
-        <label class="pick"><span class="field-label">Trip length</span><select id="s-stay" required></select></label>
-        <button class="btn primary" type="submit" id="s-go">Search</button>
-      </form>
-      <p id="s-msg" class="s-msg" role="status" aria-live="polite"></p>
-      <div id="s-results" class="s-results" hidden>
-        <p class="s-summary" id="s-summary"></p>
-        <div class="cal" id="s-cal" role="list" aria-label="Price by departure date"></div>
-        <p class="sub" id="s-foot"></p>
+    <header class="hero page">
+      <h1 id="deals-title">Go somewhere <em>for less.</em></h1>
+      <p class="hero-sub">Cheap round trips out of Seattle and Portland, found day and night, so you just pick where to go.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href="#deals">See today's deals</a>
+        <a class="btn glass-btn" href="#signup">Get deal alerts</a>
       </div>
-    </section>
+      <p class="status" id="last-checked"></p>
+      <p id="demo-note" class="demo-note" hidden>These fares are test data. Live search isn't switched on yet.</p>
+    </header>
 
-    <div class="page">
+    <div class="page deals-sec" id="deals">
       <div class="deals-head">
         <h2 class="section-title">Deals</h2>
         <div class="toolbar glass" role="group" aria-label="Filter deals">
@@ -132,6 +116,29 @@
       <p class="fine legend"><span class="ping-dot" aria-hidden="true"></span> Pinged: good enough to alert you.
         Others are under the show limit but normal for that route. <a href="#logic">Change the logic</a></p>
 
+    </div>
+
+    <section class="page search route-search" aria-labelledby="search-title">
+      <h2 id="search-title">Check a route</h2>
+      <p class="section-sub">Prices every departure date in a month for one trip length. Results from the last
+        <span id="cache-hours">12</span> hours load instantly; a new check uses one of today's
+        <span id="search-left">15</span> live searches.</p>
+      <form id="search-form" class="search-form" novalidate>
+        <label class="pick"><span class="field-label">From</span><select id="s-from" required></select></label>
+        <label class="pick grow"><span class="field-label">To</span><select id="s-to" required></select></label>
+        <label class="pick"><span class="field-label">Leaving in</span><select id="s-month" required></select></label>
+        <label class="pick"><span class="field-label">Trip length</span><select id="s-stay" required></select></label>
+        <button class="btn primary" type="submit" id="s-go">Search</button>
+      </form>
+      <p id="s-msg" class="s-msg" role="status" aria-live="polite"></p>
+      <div id="s-results" class="s-results" hidden>
+        <p class="s-summary" id="s-summary"></p>
+        <div class="cal" id="s-cal" role="list" aria-label="Price by departure date"></div>
+        <p class="sub" id="s-foot"></p>
+      </div>
+    </section>
+
+    <div class="page">
       <h2 class="section-title" id="checks-title">Recently checked</h2>
       <p class="section-sub">The cheapest round trip each background check found, whether or not it beat the limit.</p>
       <div class="board checks" id="checks-board">
