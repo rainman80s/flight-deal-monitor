@@ -38,6 +38,11 @@ export interface Config {
   maxConnections: number;
   searchesPerCycle: number;
   runsPerDay: number;
+  exploreEvery: number;
+  exploreTravelDuration: 1 | 2 | 3;
+  exploreVerifyPerRun: number;
+  serpapiDaily: number;
+  serpapiMonthly: number;
   ignavDaily: number;
   ignavTotal: number;
   calendarPerRun: number;
@@ -83,6 +88,11 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     maxConnections: r.search.max_connections,
     searchesPerCycle: r.search.searches_per_cycle,
     runsPerDay: r.search.runs_per_day,
+    exploreEvery: r.search.explore_every_runs,
+    exploreTravelDuration: r.search.explore_travel_duration as 1 | 2 | 3,
+    exploreVerifyPerRun: r.budget.explore_verifications_per_run,
+    serpapiDaily: r.budget.serpapi_searches_per_day,
+    serpapiMonthly: r.budget.serpapi_searches_per_month,
     ignavDaily: r.budget.ignav_daily_requests,
     ignavTotal: r.budget.ignav_total_requests,
     calendarPerRun: r.budget.calendar_searches_per_run,
@@ -155,6 +165,14 @@ export function ignavKey(cfg: Config): string {
   if (typeof v !== "string" || !v) throw new Error("Missing Ignav key (secret IGNAV_API_KEY or ignav-key)");
   return v;
 }
+
+/** Domestic or international for a fare/deal: its own label if it has one, else the lists. */
+export function kindOf(cfg: Config, x: { destination: string; kind?: string | null }): "domestic" | "international" {
+  if (x.kind === "domestic" || x.kind === "international") return x.kind;
+  return isDomestic(cfg, x.destination) ? "domestic" : "international";
+}
+export const limitOf = (cfg: Config, x: { destination: string; kind?: string | null }) =>
+  kindOf(cfg, x) === "domestic" ? cfg.domesticMaxPrice : cfg.internationalMaxPrice;
 
 export const isDomestic = (cfg: Config, iata: string) => cfg.domestic.includes(iata);
 export const maxPriceFor = (cfg: Config, dest: string) =>

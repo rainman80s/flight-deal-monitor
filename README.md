@@ -81,23 +81,28 @@ curl -X POST -H "Authorization: Bearer local" localhost:8787/admin/test-email   
 
 Deploying: see [DEPLOY.md](DEPLOY.md).
 
-## Live search and the request budget
+## Search: Google Explore + Ignav, alternating
 
-Live fares come from Ignav (secret `ignav-key` or `IGNAV_API_KEY`). To stretch the free
-1,000 requests, searching is budgeted (`config.json` → `budget`):
+A run happens every hour (cron `7 * * * *`):
 
-- **Calendar first:** one request prices a route for 31 departure dates at one trip length
-  (4, 7 or 10 days). Windows cover 30–150 days out.
-- **Confirm before alerting:** only a calendar price under the limit costs a second request
-  (an exact search) to confirm the real flights and price; a third fetches an airline booking link.
-- **Pace:** a run every 2 hours (cron `7 */2 * * *`) with 2 calendar checks each, at most
-  2 confirmations per run.
-- **Hard caps in code:** 30 requests per day and 950 total (D1-backed). When a cap is hit,
-  the run stops before calling Ignav. `/admin/status` shows usage.
+- **Every 3rd run, Google Explore** via SerpApi (secret `SERPAPI_KEY`): one request returns
+  Google Flights' cheapest round trip from one home airport to *every* destination
+  (next 6 months, 1-week trips), alternating SEA and PDX. Hits under the limit are confirmed
+  with one Ignav exact search (up to 3 per run); if Ignav can't confirm (request limit), the
+  Google price is used. Explore can find places outside the configured lists: US destinations
+  use the domestic limit, everything else the international one.
+- **The other runs, Ignav route checks** (secret `ignav-key`): one calendar request prices a
+  route for 31 departure dates at one trip length (4, 7 or 10 days), 30-150 days out.
 
-At this pace the free tier lasts about a month. After that Ignav charges $2 per 1,000, so
-30/day costs about $1.80/month. Raising `calendar_searches_per_run` (and the daily cap)
-is the lever for faster coverage.
+Budgets enforced in code (D1-backed; a run stops before calling an API once a cap is hit):
+
+| Source | Per day | Overall | Fits |
+|---|---|---|---|
+| SerpApi | 9 | 245 per month | the Free plan (250/month) |
+| Ignav | 45 | 950 total | the free 1,000, then about $2 per 1,000 |
+
+Without a SerpApi key, Explore runs are skipped and every run is an Ignav check.
+`/admin/status` shows usage; `POST /admin/run?mode=explore` forces an Explore run.
 
 ## Buying from the site
 

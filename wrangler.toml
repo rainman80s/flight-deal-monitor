@@ -9,10 +9,11 @@ type = "Text"
 globs = ["**/public/*.html", "**/public/*.css", "**/public/*.js"]
 fallthrough = false
 
-# How often a search run happens (UTC cron): every 2 hours, at :07. Keep search.runs_per_day
+# How often a search run happens (UTC cron): every hour, at :07. Every 3rd run is Google
+# Explore (search.explore_every_runs), the rest are Ignav route checks. Keep search.runs_per_day
 # in config.json in step with this (it only feeds the site's status text and budgeting notes).
 [triggers]
-crons = ["7 */2 * * *"]
+crons = ["7 * * * *"]
 
 [[d1_databases]]
 binding = "DB"

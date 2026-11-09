@@ -20,19 +20,19 @@
  *   GET  /health
  */
 import { executeBuy, maxTotal, needsConfirmation, requestBuy, travelersFor } from "./booking";
-import { type Config, contactByName, contactByPhone, isDomestic, maxPriceFor, secret } from "./config";
+import { type Config, contactByName, contactByPhone, kindOf, limitOf, secret } from "./config";
 import { dealSpeech } from "./messages";
 import type { BookingProvider, Deal, FareProvider } from "./models";
 import { runCycle } from "./monitor";
 import type { Store } from "./store";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
-import { ignavBudget } from "./providers";
+import { ignavBudget, makeExplore, serpapiBudget } from "./providers";
 import { ownerRoute } from "./owner";
 import { siteRoute } from "./site";
 import { staticFile } from "./static";
 import type { SubscriberStore } from "./subscribers";
-import { buyMeaning, city, dealEmail } from "./messages";
+import { buyMeaning, city, dealEmail, destCity } from "./messages";
 import { type Notifier, ResendEmailer } from "./notify";
 import { gather, message, pause, redirect, say, twiml, validTwilioRequest } from "./twilio";
 
@@ -200,10 +200,14 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
   }
   if (url.pathname === "/admin/status" && req.method === "GET") {
     return json({ provider: cfg.provider, dry_run: cfg.dryRun, ignav_requests: await ignavBudget(cfg).usage(),
+      serpapi_searches: await serpapiBudget(cfg).usage(), explore_enabled: !!makeExplore(cfg),
       deals: await store.recentDeals(20), bookings: await store.bookings(20) });
   }
   if (url.pathname === "/admin/run" && req.method === "POST") {
-    const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), deps.subs);
+    // ?mode=explore forces a Google Explore run (one SerpApi search); ?mode=scan forces route checks.
+    const mode = url.searchParams.get("mode");
+    const explore = mode === "scan" ? undefined : makeExplore(cfg, mode === "explore" ? 1 : cfg.exploreEvery);
+    const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), deps.subs, explore);
     return json({ ...r, deals: r.deals.map((d) => `${d.code} ${d.origin}-${d.destination} $${d.price}`) });
   }
   if (url.pathname === "/admin/test-email" && req.method === "POST") {
@@ -212,10 +216,10 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     const d = (await store.recentDeals(1))[0];
     if (!d) return json({ error: "no deals yet; POST /admin/run first" }, 400);
     const emailer = new ResendEmailer(secret(cfg, "RESEND_API_KEY"), String(cfg.env.EMAIL_FROM ?? cfg.emailFrom));
-    const kind = isDomestic(cfg, d.destination) ? "domestic" : "international";
+    const kind = kindOf(cfg, d);
     const sent: string[] = [];
     for (const c of cfg.contacts.filter((c) => c.email)) {
-      await emailer.send(c.email, dealEmail(d, kind, maxPriceFor(cfg, d.destination),
+      await emailer.send(c.email, dealEmail(d, kind, limitOf(cfg, d),
         await actionUrl(cfg, d.code, c.name, "buy"), await actionUrl(cfg, d.code, c.name, "skip"),
         buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake)));
       sent.push(c.name);
@@ -254,7 +258,7 @@ async function emailAction(req: Request, url: URL, code: string, deps: Deps): Pr
   const d = await store.dealByCode(code);
   if (!d) return page("Unknown deal", "<h2>Deal not found.</h2>", 404);
 
-  const summary = `<h2>${escHtml(city(d.origin))} → ${escHtml(city(d.destination))}</h2>`
+  const summary = `<h2>${escHtml(city(d.origin))} → ${escHtml(destCity(d))}</h2>`
     + `<p><b>$${d.price.toFixed(0)}</b> round trip · ${escHtml(d.depart_date)} → ${escHtml(d.return_date)}`
     + ` · deal ${d.code}</p>`;
 

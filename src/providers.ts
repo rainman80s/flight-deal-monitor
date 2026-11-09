@@ -4,6 +4,8 @@ import { type Config, ignavKey, secret } from "./config";
 import { DuffelProvider } from "./duffel";
 import { googleFlightsUrl } from "./messages";
 import { IgnavProvider } from "./ignav";
+import type { ExploreSetup } from "./monitor";
+import { ExploreClient, serpApiKey } from "./serpapi";
 import type { Fare, FareProvider, SearchQuery } from "./models";
 
 const AIRLINES = ["AS", "DL", "UA", "AA", "WN", "F9", "NK", "B6", "HA", "WS"];
@@ -51,6 +53,17 @@ export function makeFareProvider(cfg: Config): FareProvider {
 
 export const ignavBudget = (cfg: Config) =>
   new Budget(cfg.env.DB, "ignav", cfg.ignavDaily, cfg.ignavTotal);
+
+/** SerpApi's allowance resets monthly, so its "total" counter is per calendar month. */
+export const serpapiBudget = (cfg: Config, now = new Date()) =>
+  new Budget(cfg.env.DB, `serpapi_${now.toISOString().slice(0, 7)}`, cfg.serpapiDaily, cfg.serpapiMonthly);
+
+/** Google Explore runs, if a SerpApi key is set (never in dry run: each one is a real search). */
+export function makeExplore(cfg: Config, every = cfg.exploreEvery): ExploreSetup | undefined {
+  const key = serpApiKey(cfg.env);
+  if (!key || cfg.dryRun || every <= 0) return undefined;
+  return { client: new ExploreClient(key, serpapiBudget(cfg)), every };
+}
 
 /** Booking always goes through Duffel, whichever provider found the fare. */
 export const makeBookingProvider = (cfg: Config) =>

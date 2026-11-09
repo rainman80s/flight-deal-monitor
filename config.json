@@ -13,7 +13,9 @@
     "cabin_class": "economy",
     "max_connections": 1,
     "searches_per_cycle": 10,
-    "runs_per_day": 12
+    "runs_per_day": 24,
+    "explore_every_runs": 3,
+    "explore_travel_duration": 2
   },
   "rules": {
     "domestic_max_price": 100,
@@ -113,10 +115,13 @@
     "_note": "Ignav requests. Calendar = 1 request per route x 31 departure dates; verify = 1 exact search per promising date; link = 1 per alerted deal.",
     "ignav_daily_requests": 45,
     "ignav_total_requests": 950,
-    "calendar_searches_per_run": 2,
+    "calendar_searches_per_run": 1,
     "verifications_per_run": 2,
     "site_searches_per_day": 15,
     "site_searches_per_visitor_per_day": 5,
-    "search_cache_hours": 12
+    "search_cache_hours": 12,
+    "explore_verifications_per_run": 3,
+    "serpapi_searches_per_day": 9,
+    "serpapi_searches_per_month": 245
   }
 }

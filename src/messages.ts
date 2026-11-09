@@ -18,6 +18,8 @@ const CITY: Record<string, string> = {
 };
 
 export const city = (code: string) => CITY[code] ?? code.split("").join(" ");
+/** A deal's destination name: what Google called it, else the built-in name. */
+export const destCity = (d: { destination: string; dest_name?: string | null }) => d.dest_name || city(d.destination);
 const stops = (n: number) => (n === 0 ? "nonstop" : `${n} stop${n > 1 ? "s" : ""}`);
 export const tripDays = (d: Deal) => daysBetween(d.depart_date, d.return_date);
 const usd = (n: number) => `$${n.toFixed(0)}`;
@@ -26,7 +28,7 @@ export function dealText(d: Deal, kind: string, limit: number, bookingLive: bool
   const fake = d.is_fake ? "[FAKE TEST FARE] " : "";
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ") || "?";
   const action = bookingLive ? "book it" : "get the booking link";
-  return `${fake}Flight deal: ${d.origin}→${d.destination} (${city(d.destination)}) ${usd(d.price)} round trip `
+  return `${fake}Flight deal: ${d.origin}→${d.destination} (${destCity(d)}) ${usd(d.price)} round trip `
     + `(${kind}, under ${usd(limit)}).\n`
     + `${shortDate(d.depart_date)} → ${shortDate(d.return_date)} (${tripDays(d)} days), `
     + `out ${stops(d.outbound_stops)}, back ${stops(d.return_stops)}, ${airlines}.\n`
@@ -35,7 +37,7 @@ export function dealText(d: Deal, kind: string, limit: number, bookingLive: bool
 
 export function dealSpeech(d: Deal): string {
   const fake = d.is_fake ? "This is a fake test fare. " : "";
-  return `${fake}Flight deal. ${city(d.origin)} to ${city(d.destination)}, round trip, `
+  return `${fake}Flight deal. ${city(d.origin)} to ${destCity(d)}, round trip, `
     + `${d.price.toFixed(0)} dollars. Leaving ${spokenDate(d.depart_date)}, `
     + `returning ${spokenDate(d.return_date)}. That's ${tripDays(d)} days.`;
 }
@@ -68,10 +70,10 @@ export function dealEmail(d: Deal, kind: string, limit: number, buyUrl: string, 
                           meaning: string): { subject: string; text: string; html: string } {
   const fake = d.is_fake ? "[FAKE TEST FARE] " : "";
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ") || "?";
-  const subject = `${fake}✈ ${city(d.origin)} → ${city(d.destination)} $${d.price.toFixed(0)} round trip, `
+  const subject = `${fake}✈ ${city(d.origin)} → ${destCity(d)} $${d.price.toFixed(0)} round trip, `
     + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
   const lines = [
-    `${d.origin} → ${d.destination} (${city(d.destination)})`,
+    `${d.origin} → ${d.destination} (${destCity(d)})`,
     `$${d.price.toFixed(2)} ${d.currency} round trip per person (${kind}, under $${limit})`,
     `Leave ${shortDate(d.depart_date)}, return ${shortDate(d.return_date)} (${tripDays(d)} days)`,
     `Outbound ${stops(d.outbound_stops)}, return ${stops(d.return_stops)} · ${airlines}`,
@@ -84,7 +86,7 @@ export function dealEmail(d: Deal, kind: string, limit: number, buyUrl: string, 
     + `background:${bg};color:#fff;text-decoration:none;font-weight:600">${label}</a>`;
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:520px;color:#1a1a1a">
   ${fake ? `<p style="background:#fff3cd;padding:8px 12px;border-radius:6px"><b>Fake test fare</b>: not a real flight.</p>` : ""}
-  <h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(city(d.destination))}</h2>
+  <h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(destCity(d))}</h2>
   <p style="font-size:28px;font-weight:700;margin:4px 0">$${d.price.toFixed(0)} <span style="font-size:15px;font-weight:400;color:#555">round trip · ${kind} · under $${limit}</span></p>
   <p style="font-size:15px;line-height:1.6;margin:12px 0">
     ${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))} (${tripDays(d)} days)<br>

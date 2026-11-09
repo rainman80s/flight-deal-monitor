@@ -8,14 +8,14 @@
  *   GET  /u/unsubscribe?id=&t=     unsubscribe page (button)    POST performs it
  */
 import type { Deps } from "./app";
-import { type Config, isDomestic } from "./config";
+import { type Config, isDomestic, kindOf } from "./config";
 import { Budget, BudgetExceeded } from "./budget";
 import { type CalendarDay, CheckStore } from "./checks";
 import { addDays, daysBetween, utcDate } from "./dates";
 import { escHtml, page } from "./html";
 import { verifySubscriberToken } from "./links";
 import { IgnavProvider } from "./ignav";
-import { city, googleFlightsUrl } from "./messages";
+import { city, destCity, googleFlightsUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
 import { confirmationEmail, EMAIL_RE, SubscriberStore } from "./subscribers";
@@ -29,11 +29,11 @@ export function publicDeal(cfg: Config, d: Deal) {
   return {
     code: d.code,
     origin: d.origin, origin_city: city(d.origin),
-    destination: d.destination, destination_city: city(d.destination),
+    destination: d.destination, destination_city: destCity(d),
     depart_date: d.depart_date, return_date: d.return_date,
     trip_days: daysBetween(d.depart_date, d.return_date),
     price: d.price, currency: d.currency,
-    kind: isDomestic(cfg, d.destination) ? "domestic" : "international",
+    kind: kindOf(cfg, d),
     airlines: JSON.parse(d.airlines) as string[],
     outbound_stops: d.outbound_stops, return_stops: d.return_stops,
     booking_url: d.booking_url,

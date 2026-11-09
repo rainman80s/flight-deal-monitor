@@ -1,5 +1,5 @@
 /** The deal rules. A fare is a deal only if every check passes. */
-import { type Config, isDomestic, maxPriceFor } from "./config";
+import { type Config, kindOf, limitOf } from "./config";
 import { daysBetween } from "./dates";
 import { type Fare, routeKey } from "./models";
 
@@ -11,12 +11,12 @@ export function rejectionReason(cfg: Config, f: Fare, today: string): string | n
   const trip = daysBetween(f.departDate, f.returnDate);
   if (trip > cfg.maxTripDays) return `trip is ${trip} days (> ${cfg.maxTripDays})`;
   if (trip < cfg.minTripDays) return `trip is ${trip} days (< ${cfg.minTripDays})`;
-  if (!cfg.domestic.includes(f.destination) && !cfg.international.includes(f.destination)) {
+  if (!f.kind && !cfg.domestic.includes(f.destination) && !cfg.international.includes(f.destination)) {
     return `${f.destination} not in destination lists`;
   }
-  const limit = maxPriceFor(cfg, f.destination);
+  const limit = limitOf(cfg, f);
   if (f.price >= limit) {
-    const kind = isDomestic(cfg, f.destination) ? "domestic" : "international";
+    const kind = kindOf(cfg, f);
     return `$${f.price.toFixed(0)} not under ${kind} limit $${limit}`;
   }
   return null;

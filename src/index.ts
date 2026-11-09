@@ -2,7 +2,7 @@
 import { handle } from "./app";
 import { buildConfig, type Env } from "./config";
 import { runCycle } from "./monitor";
-import { makeFareProvider } from "./providers";
+import { makeExplore, makeFareProvider } from "./providers";
 import { Store } from "./store";
 import { SubscriberStore } from "./subscribers";
 import { makeNotifier } from "./notify";
@@ -23,6 +23,6 @@ export default {
   async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     const cfg = buildConfig(env);
     await runCycle(cfg, new Store(env.DB), makeFareProvider(cfg), makeNotifier(cfg), new Date(),
-      new SubscriberStore(env.DB));
+      new SubscriberStore(env.DB), makeExplore(cfg));
   },
 } satisfies ExportedHandler<Env>;

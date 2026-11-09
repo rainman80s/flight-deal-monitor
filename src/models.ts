@@ -26,6 +26,9 @@ export interface Fare {
   offerId: string | null;
   bookingUrl: string | null;
   isFake: boolean;
+  /** Set when the destination may not be in the configured lists (Google Explore finds). */
+  kind?: "domestic" | "international";
+  destName?: string;
 }
 
 /** A row from the deals table. */
@@ -48,6 +51,8 @@ export interface Deal {
   is_fake: number;
   found_at: string;
   alerted_at: string | null;
+  kind: "domestic" | "international" | null;
+  dest_name: string | null;
 }
 
 export const routeKey = (f: { origin: string; destination: string; departDate: string; returnDate: string }) =>

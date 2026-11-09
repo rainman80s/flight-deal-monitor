@@ -51,11 +51,11 @@ export class Store {
     for (let attempt = 0; attempt < 10; attempt++) {
       const res = await this.db.prepare(
         `INSERT OR IGNORE INTO deals(code,route_key,provider,origin,destination,depart_date,return_date,
-          price,currency,airlines,outbound_stops,return_stops,offer_id,booking_url,is_fake,found_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          price,currency,airlines,outbound_stops,return_stops,offer_id,booking_url,is_fake,found_at,kind,dest_name)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).bind(randomCode(), routeKey(f), f.provider, f.origin, f.destination, f.departDate, f.returnDate,
         f.price, f.currency, JSON.stringify(f.airlines), f.outboundStops, f.returnStops, f.offerId,
-        f.bookingUrl, f.isFake ? 1 : 0, nowIso()).run();
+        f.bookingUrl, f.isFake ? 1 : 0, nowIso(), f.kind ?? null, f.destName ?? null).run();
       if (res.meta.changes === 1) return (await this.deal(Number(res.meta.last_row_id)))!;
     }
     throw new Error("could not allocate a unique deal code");

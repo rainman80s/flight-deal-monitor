@@ -3,10 +3,10 @@
  * price limits. Subscribers only ever get alerts with a Google Flights link;
  * buying (with the owner's Duffel balance) stays limited to the configured contacts.
  */
-import { type Config, isDomestic, secret } from "./config";
+import { type Config, kindOf, secret } from "./config";
 import { shortDate } from "./dates";
 import { subscriberToken } from "./links";
-import { city, tripDays } from "./messages";
+import { city, destCity, tripDays } from "./messages";
 import type { Deal } from "./models";
 import type { Notifier } from "./notify";
 
@@ -116,14 +116,14 @@ export async function confirmationEmail(cfg: Config, s: Subscriber) {
 
 export async function subscriberDealEmail(cfg: Config, s: Subscriber, d: Deal) {
   const unsub = await subscriberLink(cfg, s, "unsubscribe");
-  const kind = isDomestic(cfg, d.destination) ? "domestic" : "international";
+  const kind = kindOf(cfg, d);
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ");
-  const subject = `✈ ${city(d.origin)} → ${city(d.destination)} $${d.price.toFixed(0)} round trip, `
+  const subject = `✈ ${city(d.origin)} → ${destCity(d)} $${d.price.toFixed(0)} round trip, `
     + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
-  const text = `${d.origin} → ${d.destination} (${city(d.destination)}), $${d.price.toFixed(0)} round trip (${kind})\n`
+  const text = `${d.origin} → ${d.destination} (${destCity(d)}), $${d.price.toFixed(0)} round trip (${kind})\n`
     + `${shortDate(d.depart_date)} → ${shortDate(d.return_date)} (${tripDays(d)} days) · ${airlines}\n\n`
     + `Book: ${d.booking_url ?? ""}\n\nPrices move fast; check before you book.\nUnsubscribe: ${unsub}\n`;
-  const html = wrap(`<h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(city(d.destination))}</h2>
+  const html = wrap(`<h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(destCity(d))}</h2>
 <p style="font-size:28px;font-weight:700;margin:4px 0">$${d.price.toFixed(0)}
  <span style="font-size:15px;font-weight:400;color:#555">round trip · ${kind}</span></p>
 <p>${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))} (${tripDays(d)} days) · ${escHtml(airlines)}</p>
@@ -138,7 +138,7 @@ export async function notifySubscribers(cfg: Config, subs: SubscriberStore, noti
   if (d.is_fake || cfg.dryRun) return 0;
   const owners = new Set(cfg.contacts.map((c) => c.email.toLowerCase()).filter(Boolean));
   let n = 0;
-  for (const s of await subs.matching(d, isDomestic(cfg, d.destination))) {
+  for (const s of await subs.matching(d, kindOf(cfg, d) === "domestic")) {
     if (owners.has(s.email)) continue; // owners already got the Buy/Skip version
     try {
       await notifier.email(s.email, await subscriberDealEmail(cfg, s, d));
