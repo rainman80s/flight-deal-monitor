@@ -87,7 +87,7 @@ describe("ignav", () => {
 // ---------------- budget + calendar ----------------
 import { Budget, BudgetExceeded } from "../src/budget";
 import { calendarWindows, planCalendar } from "../src/planner";
-import { fakeD1, makeCfg } from "./helpers";
+import { fakeD1, LEGACY_CATS, makeCfg } from "./helpers";
 
 describe("request budget", () => {
   it("enforces daily and all-time caps, and resets daily", async () => {
@@ -106,7 +106,9 @@ describe("request budget", () => {
 
 describe("calendar plan", () => {
   it("covers 30-150 days out in 31-day windows, rotating routes and trip lengths", () => {
-    const cfg = makeCfg();
+    const cfg = makeCfg({ cats: {
+      domestic: { ...LEGACY_CATS.domestic, maxDaysOut: 150 },
+      international: { ...LEGACY_CATS.international, maxDaysOut: 150 } } });
     expect(calendarWindows(cfg)).toEqual([
       { offset: 30, days: 31 }, { offset: 61, days: 31 }, { offset: 92, days: 31 }, { offset: 123, days: 28 }]);
     const runs = Array.from({ length: 6 }, (_, c) => planCalendar(cfg, c, "2026-11-05", 2)).flat();
@@ -125,7 +127,7 @@ describe("calendar search", () => {
   const cq = { origin: "SEA", destination: "LAX", departDate: "2026-12-05", returnDate: "2026-12-09",
                windowDays: 31, stayDays: 4, maxPrice: 100 };
 
-  it("one calendar request, then one exact search for the cheapest date under the limit", async () => {
+  it("one calendar request returns the cheapest date as an estimate; confirm() re-prices it exactly", async () => {
     const calls: Parameters<typeof fakeFetch>[0] = [];
     const p = new IgnavProvider("k", "economy", 1, null, fakeFetch(calls, (url) => url.endsWith("cheapest-dates")
       ? new Response(JSON.stringify(cal([
@@ -135,12 +137,18 @@ describe("calendar search", () => {
           { departure_date: "2026-12-26", return_date: "2026-12-30", price: null }])))
       : new Response(JSON.stringify(RESPONSE))));
     const fares = await p.search(cq);
-    expect(calls.map((c) => c.url.split("/api")[1])).toEqual(["/fares/cheapest-dates", "/fares/round-trip"]);
+    expect(calls.map((c) => c.url.split("/api")[1])).toEqual(["/fares/cheapest-dates"]); // no extra request
     expect(calls[0].body).toMatchObject({ departure_date_range: { start: "2026-12-05", end: "2027-01-04" },
       stay_days: 4 });
     expect(calls[0].body).not.toHaveProperty("max_price");
+    expect(fares).toEqual([expect.objectContaining({ provider: "ignav-calendar", departDate: "2026-12-12",
+      returnDate: "2026-12-16", price: 79, offerId: null })]);
+    expect(p.checks[0].days).toHaveLength(4); // the whole month is kept for price history
+
+    const exact = await p.confirm({ ...fares[0], kind: "domestic", destName: "Los Angeles" });
+    expect(calls[1].url).toContain("/fares/round-trip");
     expect(calls[1].body).toMatchObject({ departure_date: "2026-12-12", return_date: "2026-12-16" });
-    expect(fares[0]).toMatchObject({ departDate: "2026-12-12", returnDate: "2026-12-16", price: 89 });
+    expect(exact).toMatchObject({ provider: "ignav", price: 89, offerId: "ig_1", kind: "domestic", destName: "Los Angeles" });
   });
 
   it("spends nothing more when no date is under the limit", async () => {
@@ -151,16 +159,22 @@ describe("calendar search", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("caps exact verifications per run", async () => {
+  it("a run confirms at most verifications_per_run estimates", async () => {
+    const { cfg, store, notifier } = setup({ dryRun: false });
+    cfg.calendarPerRun = 3;
+    cfg.verifyPerRun = 1;
     const calls: Parameters<typeof fakeFetch>[0] = [];
     const p = new IgnavProvider("k", "economy", 1, null, fakeFetch(calls, (url) => url.endsWith("cheapest-dates")
       ? new Response(JSON.stringify(cal([{ departure_date: "2026-12-12", return_date: "2026-12-16",
           price: { amount: 79, currency: "USD", status: "unverified" } }])))
-      : new Response(JSON.stringify(RESPONSE))), undefined, 1);
-    await p.search(cq);
-    await p.search(cq);
-    expect(calls.map((c) => c.url.split("/api")[1])).toEqual(
-      ["/fares/cheapest-dates", "/fares/round-trip", "/fares/cheapest-dates"]);
+      : new Response(JSON.stringify(RESPONSE))));
+    const r = await runCycle(cfg, store, p, notifier, new Date("2026-11-05T20:00:00Z"));
+    const kinds = calls.map((c) => c.url.split("/api")[1]);
+    expect(kinds.filter((k) => k === "/fares/cheapest-dates")).toHaveLength(3);
+    expect(kinds.filter((k) => k === "/fares/round-trip")).toHaveLength(1);
+    expect(r.notes!.join("\n")).toMatch(/not confirmed this run \(confirmation limit\)/);
+    expect(r.deals).toHaveLength(1); // the confirmed one pings
+    expect(r.shown).toBe(3);         // the unconfirmed ones are still shown
   });
 
   it("a run stops cleanly when the budget is used up, without calling Ignav", async () => {

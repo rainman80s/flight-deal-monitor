@@ -11,13 +11,17 @@ import type { Deps } from "./app";
 import { type Config, isDomestic, kindOf } from "./config";
 import { Budget, BudgetExceeded } from "./budget";
 import { type CalendarDay, CheckStore } from "./checks";
-import { addDays, daysBetween, utcDate } from "./dates";
+import { addDays, daysBetween, localParts, utcDate } from "./dates";
+import { rejectionReason } from "./rules";
 import { escHtml, page } from "./html";
 import { verifySubscriberToken } from "./links";
 import { IgnavProvider } from "./ignav";
 import { city, destCity, googleFlightsUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
+import { currentUser, sameOrigin } from "./auth";
+import { PriceHistory } from "./baselines";
+import { defaultCategories, describe, loadSaved, resetCategories, saveCategories, toRaw, validateCat } from "./settings";
 import { confirmationEmail, EMAIL_RE, SubscriberStore } from "./subscribers";
 
 const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =>
@@ -39,6 +43,11 @@ export function publicDeal(cfg: Config, d: Deal) {
     booking_url: d.booking_url,
     is_fake: !!d.is_fake,
     found_at: d.found_at,
+    typical: d.typical_median ? { median: d.typical_median, low: d.typical_low, high: d.typical_high } : null,
+    pinged: !!d.alerted_at,
+    ping_reason: d.alerted_at ? d.ping_reason : null,
+    /** Price from a price calendar or Google Explore, not yet an exact bookable quote. */
+    estimate: d.provider === "ignav-calendar" || d.provider === "google-explore",
   };
 }
 
@@ -82,10 +91,20 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const kind = url.searchParams.get("kind") ?? "";
     const max = intIn(url.searchParams.get("max"), 1, 100000);
     const limit = intIn(url.searchParams.get("limit"), 1, 100) ?? 60;
-    const sort = url.searchParams.get("sort") === "price" ? "price" : "recent";
+    const sortParam = url.searchParams.get("sort");
+    const sort = sortParam === "price" || sortParam === "value" ? sortParam : "recent";
     const demo = cfg.dryRun || cfg.provider === "mock";
     // Once live search is on, old test fares disappear from the site.
-    let deals = (await store.recentDeals(300)).filter((d) => demo || !d.is_fake).map((d) => publicDeal(cfg, d));
+    // Only deals that still fit today's rules (the Logic panel can change them) and were seen in
+    // the last week; older prices have likely moved.
+    const today = localParts(new Date(), cfg.timezone).date;
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const stillValid = (d: Deal) => d.found_at >= weekAgo.slice(0, 19) && !rejectionReason(cfg, {
+      provider: d.provider, origin: d.origin, destination: d.destination, departDate: d.depart_date,
+      returnDate: d.return_date, price: d.price, currency: d.currency, airlines: [], outboundStops: 0, returnStops: 0,
+      offerId: null, bookingUrl: null, isFake: !!d.is_fake, kind: d.kind ?? undefined }, today);
+    let deals = (await store.recentDeals(400)).filter((d) => (demo || !d.is_fake) && stillValid(d))
+      .map((d) => publicDeal(cfg, d));
     if (cfg.origins.includes(origin)) deals = deals.filter((d) => d.origin === origin);
     if (kind === "domestic" || kind === "international") deals = deals.filter((d) => d.kind === kind);
     if (max) deals = deals.filter((d) => d.price <= max);
@@ -98,6 +117,9 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       return true;
     });
     if (sort === "price") deals.sort((a, b) => a.price - b.price);
+    // Best value: pinged first, then furthest below the route's usual price (or below the show limit).
+    const score = (d: ReturnType<typeof publicDeal>) => d.price / (d.typical?.median ?? cfg.cats[d.kind].showUnder);
+    if (sort === "value") deals.sort((a, b) => Number(b.pinged) - Number(a.pinged) || score(a) - score(b));
     return json({ deals: deals.slice(0, limit) }, 200, { "Cache-Control": "public, max-age=60" });
   }
 
@@ -136,6 +158,52 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
         + "email its owner until a sending domain is set up." }, 502);
     }
     return json({ ok: true, status: "check_email" });
+  }
+
+  // ---- Logic panel ----
+  if (p === "/api/logic" && req.method === "GET") {
+    const saved = await loadSaved(cfg.env.DB);
+    const defs = defaultCategories();
+    const user = await currentUser(cfg, req);
+    return json({
+      categories: { domestic: toRaw(cfg.cats.domestic), international: toRaw(cfg.cats.international) },
+      defaults: { domestic: toRaw(defs.domestic), international: toRaw(defs.international) },
+      summaries: { domestic: describe("domestic", cfg.cats.domestic), international: describe("international", cfg.cats.international) },
+      customized: Object.keys(saved.cats).length > 0, updated_at: saved.updated_at, updated_by: saved.updated_by,
+      can_edit: !!user,
+    });
+  }
+
+  if (p === "/api/logic" && req.method === "PUT") {
+    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
+    const user = await currentUser(cfg, req);
+    if (!user) return json({ ok: false, error: "Sign in to change the logic." }, 401);
+    let b: Record<string, unknown>;
+    try { b = await req.json(); } catch { return json({ ok: false, error: "Bad request." }, 400); }
+    const dom = validateCat(b.domestic), intl = validateCat(b.international);
+    if (!dom.ok || !intl.ok) {
+      return json({ ok: false, error: "Some values need fixing.", fields: {
+        domestic: dom.ok ? {} : dom.errors, international: intl.ok ? {} : intl.errors } }, 400);
+    }
+    const cats = { domestic: dom.rules, international: intl.rules };
+    await saveCategories(cfg.env.DB, cats, user.name);
+    return json({ ok: true, summaries: { domestic: describe("domestic", cats.domestic),
+      international: describe("international", cats.international) } });
+  }
+
+  if (p === "/api/logic/reset" && req.method === "POST") {
+    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
+    if (!(await currentUser(cfg, req))) return json({ ok: false, error: "Sign in to change the logic." }, 401);
+    await resetCategories(cfg.env.DB);
+    return json({ ok: true });
+  }
+
+  if (p === "/api/baselines" && req.method === "GET") {
+    const rows = (await new PriceHistory(cfg.env.DB).all()).map((b) => ({
+      ...b, destination_city: city(b.destination), kind: kindOf(cfg, b),
+    }));
+    rows.sort((a, b) => a.destination_city.localeCompare(b.destination_city) || a.origin.localeCompare(b.origin));
+    return json({ routes: rows }, 200, { "Cache-Control": "public, max-age=120" });
   }
 
   if (p === "/api/checks" && req.method === "GET") {
@@ -257,6 +325,8 @@ async function siteSearch(req: Request, deps: Deps): Promise<Response> {
     const days = await provider.calendarDays(origin, destination, start, windowDays, stay);
     await store.save({ origin, destination, windowStart: start, windowDays, stayDays: stay, days, limit,
       source: "search" });
+    try { await new PriceHistory(cfg.env.DB).recordCalendar(origin, destination, stay, days, "search"); }
+    catch (e) { console.error("saving search prices failed", e); }
     return reply(days, new Date().toISOString(), false, await leftToday());
   } catch (e) {
     await visitor.refund();

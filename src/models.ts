@@ -53,6 +53,11 @@ export interface Deal {
   alerted_at: string | null;
   kind: "domestic" | "international" | null;
   dest_name: string | null;
+  typical_low: number | null;
+  typical_high: number | null;
+  typical_median: number | null;
+  /** Why it pinged; null = shown on the site only. */
+  ping_reason: string | null;
 }
 
 export const routeKey = (f: { origin: string; destination: string; departDate: string; returnDate: string }) =>
@@ -63,6 +68,8 @@ export interface FareProvider {
   search(q: SearchQuery): Promise<Fare[]>;
   /** Optional: a better booking URL (e.g. airline-direct) for a fare's offerId. */
   bookingLink?(offerId: string): Promise<string | null>;
+  /** Optional: re-price an estimate exactly (e.g. a calendar or Google Explore price). */
+  confirm?(f: Fare): Promise<Fare | null>;
   /** Optional: human-readable lines about this run's searches. */
   readonly notes?: string[];
   /** Optional: calendar results from this run, saved for the site. */

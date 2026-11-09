@@ -47,18 +47,30 @@ export class Store {
     return last === null || f.price <= last * (1 - realertDropPercent / 100);
   }
 
-  async addDeal(f: Fare): Promise<Deal> {
+  async addDeal(f: Fare, meta: { typicalLow?: number; typicalHigh?: number; typicalMedian?: number;
+                                 pingReason?: string | null } = {}): Promise<Deal> {
     for (let attempt = 0; attempt < 10; attempt++) {
       const res = await this.db.prepare(
         `INSERT OR IGNORE INTO deals(code,route_key,provider,origin,destination,depart_date,return_date,
-          price,currency,airlines,outbound_stops,return_stops,offer_id,booking_url,is_fake,found_at,kind,dest_name)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          price,currency,airlines,outbound_stops,return_stops,offer_id,booking_url,is_fake,found_at,kind,dest_name,
+          typical_low,typical_high,typical_median,ping_reason)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).bind(randomCode(), routeKey(f), f.provider, f.origin, f.destination, f.departDate, f.returnDate,
         f.price, f.currency, JSON.stringify(f.airlines), f.outboundStops, f.returnStops, f.offerId,
-        f.bookingUrl, f.isFake ? 1 : 0, nowIso(), f.kind ?? null, f.destName ?? null).run();
+        f.bookingUrl, f.isFake ? 1 : 0, nowIso(), f.kind ?? null, f.destName ?? null, meta.typicalLow ?? null,
+        meta.typicalHigh ?? null, meta.typicalMedian ?? null, meta.pingReason ?? null).run();
       if (res.meta.changes === 1) return (await this.deal(Number(res.meta.last_row_id)))!;
     }
     throw new Error("could not allocate a unique deal code");
+  }
+
+  /** Was this exact trip saved in the last `hours` at this price or lower? (Avoids repeat rows.) */
+  async recentlyShown(f: Fare, hours: number, now = new Date()): Promise<boolean> {
+    const since = new Date(now.getTime() - hours * 3_600_000).toISOString().slice(0, 19) + "Z";
+    const r = await this.db.prepare(
+      "SELECT 1 FROM deals WHERE route_key=? AND found_at>? AND price<=? LIMIT 1",
+    ).bind(routeKey(f), since, f.price).first();
+    return r !== null;
   }
 
   async markAlerted(id: number): Promise<void> {

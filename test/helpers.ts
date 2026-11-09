@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import raw from "../config.json";
 import { buildConfig, type Config, type Env, type RawConfig } from "../src/config";
+import { type Categories, setCategories } from "../src/settings";
 import { Store } from "../src/store";
 import { ConsoleNotifier } from "../src/notify";
 
@@ -52,9 +53,23 @@ export function testEnv(db = fakeD1()): Env {
   };
 }
 
+/**
+ * The original fixed rules (domestic under $100, international under $300, 30-240 days out,
+ * 2-14 day trips, ping whenever shown). Most tests were written against these, so they stay
+ * the test default; tests of the Logic-panel rules pass `cats` or use `defaultCategories()`.
+ */
+export const LEGACY_CATS: Categories = {
+  domestic: { minDaysOut: 30, maxDaysOut: 240, minTripDays: 2, maxTripDays: 14, showUnder: 100,
+              alert: { mode: "under", under: 100, dropPercent: 30, minSamples: 8 } },
+  international: { minDaysOut: 30, maxDaysOut: 240, minTripDays: 2, maxTripDays: 14, showUnder: 300,
+                   alert: { mode: "under", under: 300, dropPercent: 30, minSamples: 8 } },
+};
+
 export function makeCfg(overrides: Partial<Config> = {}, env = testEnv()): Config {
   const cfg = buildConfig(env, structuredClone(raw) as RawConfig);
-  return Object.assign(cfg, overrides);
+  setCategories(cfg, structuredClone(overrides.cats ?? LEGACY_CATS));
+  const { cats: _ignored, ...rest } = overrides;
+  return Object.assign(cfg, rest);
 }
 
 export function setup(overrides: Partial<Config> = {}) {

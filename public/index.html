@@ -17,7 +17,8 @@
       <nav class="segmented" aria-label="Sections">
         <span class="thumb" aria-hidden="true"></span>
         <a href="#browse" data-tab="browse">Deals</a>
-        <a href="#signup" data-tab="signup">Email alerts</a>
+        <a href="#logic" data-tab="logic">Logic</a>
+        <a href="#signup" data-tab="signup">Alerts</a>
       </nav>
       <button type="button" class="btn glass-btn small" id="account-btn">Sign in</button>
     </div>
@@ -98,45 +99,38 @@
     </section>
 
     <div class="page">
-      <h2 class="section-title">Deals under the limit</h2>
-      <div class="toolbar glass" role="group" aria-label="Filter deals">
-        <div class="seg" data-filter="origin" role="radiogroup" aria-label="Departing from"></div>
-        <div class="seg" data-filter="kind" role="radiogroup" aria-label="Domestic or international">
-          <button type="button" role="radio" data-value="" aria-checked="true">All</button>
-          <button type="button" role="radio" data-value="domestic" aria-checked="false">US</button>
-          <button type="button" role="radio" data-value="international" aria-checked="false">Abroad</button>
-        </div>
-        <label class="range">
-          <span>Up to <output id="max-out">any price</output></span>
-          <input id="max" type="range" min="50" max="300" step="10" value="300">
-        </label>
-        <div class="seg" data-filter="sort" role="radiogroup" aria-label="Sort">
-          <button type="button" role="radio" data-value="recent" aria-checked="true">Newest</button>
-          <button type="button" role="radio" data-value="price" aria-checked="false">Cheapest</button>
+      <div class="deals-head">
+        <h2 class="section-title">Deals</h2>
+        <div class="toolbar glass" role="group" aria-label="Filter deals">
+          <div class="seg" data-filter="origin" role="radiogroup" aria-label="Departing from"></div>
+          <div class="seg" data-filter="sort" role="radiogroup" aria-label="Sort">
+            <button type="button" role="radio" data-value="value" aria-checked="true">Best value</button>
+            <button type="button" role="radio" data-value="price" aria-checked="false">Cheapest</button>
+            <button type="button" role="radio" data-value="recent" aria-checked="false">Newest</button>
+          </div>
         </div>
       </div>
 
-      <article id="best" class="best" hidden aria-labelledby="best-route">
-        <p class="best-why" id="best-why"></p>
-        <div class="best-main">
-          <div>
-            <h2 id="best-route" class="best-route"></h2>
-            <p class="best-detail" id="best-detail"></p>
-          </div>
-          <div class="best-buy">
-            <span class="best-price" id="best-price"></span>
-            <a class="btn glass-btn" id="best-link" target="_blank" rel="noopener">Book</a>
-          </div>
-        </div>
-      </article>
-
-      <div class="board" id="board">
-        <div class="board-head" aria-hidden="true">
-          <span>Route</span><span>Dates</span><span>Stops</span><span>Airline</span><span class="r">Round trip</span><span></span>
-        </div>
-        <ol id="rows" class="rows" aria-label="Deals"></ol>
-        <p id="empty" class="empty" hidden></p>
+      <div class="deal-cols" id="board">
+        <section class="deal-col" aria-labelledby="col-intl-title">
+          <header class="col-head">
+            <h3 id="col-intl-title">International</h3>
+            <p class="col-rule" id="rule-intl"></p>
+          </header>
+          <ol class="deal-list" id="rows-intl" aria-labelledby="col-intl-title"></ol>
+          <p class="empty" id="empty-intl" hidden></p>
+        </section>
+        <section class="deal-col" aria-labelledby="col-dom-title">
+          <header class="col-head">
+            <h3 id="col-dom-title">Domestic</h3>
+            <p class="col-rule" id="rule-dom"></p>
+          </header>
+          <ol class="deal-list" id="rows-dom" aria-labelledby="col-dom-title"></ol>
+          <p class="empty" id="empty-dom" hidden></p>
+        </section>
       </div>
+      <p class="fine legend"><span class="ping-dot" aria-hidden="true"></span> Pinged: good enough to alert you.
+        Others are under the show limit but normal for that route. <a href="#logic">Change the logic</a></p>
 
       <h2 class="section-title" id="checks-title">Recently checked</h2>
       <p class="section-sub">The cheapest round trip each background check found, whether or not it beat the limit.</p>
@@ -145,7 +139,7 @@
           <span>Route</span><span>Departures checked</span><span class="r">Cheapest found</span><span class="r">Limit</span><span class="r">Checked</span>
         </div>
         <ol id="checks" class="rows" aria-labelledby="checks-title"></ol>
-        <p id="checks-empty" class="empty" hidden>No checks yet. The first one runs within two hours.</p>
+        <p id="checks-empty" class="empty" hidden>No checks yet. The first one runs within the hour.</p>
       </div>
     </div>
   </section>
@@ -205,6 +199,37 @@
           </div>
         </div>
       </figure>
+    </div>
+  </section>
+
+  <!-- ===================== Logic ===================== -->
+  <section id="view-logic" class="view page" aria-labelledby="logic-title" hidden>
+    <div class="logic">
+      <h1 id="logic-title">Logic</h1>
+      <p class="lead-p">How Fare Radar decides what shows up on the site and when it pings you. Changes apply
+        from the next search, within the hour.</p>
+      <p id="logic-readonly" class="setup-note" hidden>You're viewing the current rules.
+        <a href="#account">Sign in</a> to change them.</p>
+      <form id="logic-form" novalidate>
+        <div class="logic-cols" id="logic-cats"></div>
+        <div class="t-actions logic-actions">
+          <button class="btn primary" type="submit" id="logic-save">Save changes</button>
+          <button class="btn glass-btn" type="button" id="logic-reset">Reset to defaults</button>
+          <span class="t-msg" id="logic-msg" role="status" aria-live="polite"></span>
+        </div>
+        <p class="fine" id="logic-updated"></p>
+      </form>
+
+      <h2 class="section-title" id="learned-title">What it has learned</h2>
+      <p class="section-sub">Usual round-trip prices per route from the last 60 days of checks. "Below usual" pings
+        compare against the typical (middle) price. A route needs enough prices before it's judged this way.</p>
+      <div class="board learned">
+        <div class="board-head" aria-hidden="true">
+          <span>Route</span><span class="r">Usual range</span><span class="r">Typical</span><span class="r">Prices seen</span>
+        </div>
+        <ol class="rows" id="learned" aria-labelledby="learned-title"></ol>
+        <p class="empty" id="learned-empty" hidden>Nothing yet. Every search adds prices; routes fill in over the next few days.</p>
+      </div>
     </div>
   </section>
 
@@ -273,14 +298,54 @@
   </footer>
 
   <template id="row-tpl">
-    <li class="row">
-      <span class="c-route"><span class="codes"><b class="o"></b><span class="arrow">→</span><b class="d"></b></span><span class="city"></span></span>
-      <span class="c-dates"><span class="dates"></span><span class="sub days"></span></span>
-      <span class="c-stops"></span>
-      <span class="c-air"></span>
-      <span class="c-price"></span>
-      <span class="c-go"><a class="btn glass-btn small" target="_blank" rel="noopener">Book</a></span>
+    <li class="deal-row">
+      <div class="dr-main">
+        <p class="dr-route"><span class="codes"><b class="o"></b><span class="arrow">→</span><b class="d"></b></span>
+          <span class="city"></span></p>
+        <p class="dr-when"></p>
+        <p class="dr-usual"></p>
+      </div>
+      <div class="dr-side">
+        <span class="dr-price"></span>
+        <a class="btn glass-btn small" target="_blank" rel="noopener">Book</a>
+      </div>
     </li>
+  </template>
+
+  <!-- ===================== Logic ===================== -->
+  <template id="logic-cat-tpl">
+    <section class="logic-cat">
+      <header class="lc-head"><h2 class="lc-title"></h2><p class="lc-summary"></p></header>
+      <fieldset class="lc-group">
+        <legend>When the trip leaves</legend>
+        <p class="lc-line">At least <input class="num" name="min_days_out" type="number" min="0" max="300" inputmode="numeric"> days from now,
+          and no more than <input class="num" name="max_days_out" type="number" min="1" max="330" inputmode="numeric"> days out.</p>
+        <span class="f-err" data-for="min_days_out"></span><span class="f-err" data-for="max_days_out"></span>
+      </fieldset>
+      <fieldset class="lc-group">
+        <legend>How long the trip is</legend>
+        <p class="lc-line">Between <input class="num" name="min_trip_days" type="number" min="1" max="30" inputmode="numeric"> and
+          <input class="num" name="max_trip_days" type="number" min="1" max="60" inputmode="numeric"> days, round trip.</p>
+        <span class="f-err" data-for="min_trip_days"></span><span class="f-err" data-for="max_trip_days"></span>
+      </fieldset>
+      <fieldset class="lc-group">
+        <legend>Show on the site</legend>
+        <p class="lc-line">Fares under $<input class="num wide" name="show_under" type="number" min="20" max="5000" step="10" inputmode="numeric">.</p>
+        <span class="f-err" data-for="show_under"></span>
+      </fieldset>
+      <fieldset class="lc-group">
+        <legend>Ping me when</legend>
+        <label class="lc-choice"><input type="radio" value="under">
+          <span>The price is under $<input class="num wide" name="alert.under" type="number" min="20" max="5000" step="10" inputmode="numeric"></span></label>
+        <label class="lc-choice"><input type="radio" value="smart">
+          <span>It's at least <input class="num" name="alert.drop_percent" type="number" min="5" max="90" inputmode="numeric">% below
+            that route's usual price</span></label>
+        <p class="lc-help smart-only">Until we've seen <input class="num" name="alert.min_samples" type="number" min="3" max="200" inputmode="numeric">
+          prices for a route, it pings under the price above instead.</p>
+        <span class="f-err" data-for="alert.mode"></span><span class="f-err" data-for="alert.under"></span>
+        <span class="f-err" data-for="alert.drop_percent"></span><span class="f-err" data-for="alert.min_samples"></span>
+      </fieldset>
+    </section>
   </template>
 
   <script src="/app.js" defer></script>

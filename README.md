@@ -104,6 +104,24 @@ Budgets enforced in code (D1-backed; a run stops before calling an API once a ca
 Without a SerpApi key, Explore runs are skipped and every run is an Ignav check.
 `/admin/status` shows usage; `POST /admin/run?mode=explore` forces an Explore run.
 
+## Deal logic (Logic panel)
+
+Each category has its own rules, editable on the site's **Logic** page (owners only; saved in
+D1 and applied from the next run; defaults in config.json `categories`):
+
+| | International | Domestic |
+|---|---|---|
+| Leaves | 20 to 180 days out | 2 to 150 days out |
+| Trip length | 5 to 21 days | 2 to 14 days |
+| Shown on the site | under $500 | under $200 |
+| Pings | under $500 | 30%+ below that route's usual price (under $100 until 8 prices are known) |
+
+"Usual price" is learned per route: every price seen (calendar checks, Google Explore, site
+searches) goes into `price_obs`, and a route's baseline is the median and middle-50% range of
+the last 60 days (SEA and PDX pooled when one airport alone is thin). Prices from a calendar or
+Google Explore are estimates, so anything good enough to ping is confirmed with one exact Ignav
+search first. The Logic page also lists what's been learned for each route.
+
 ## Buying from the site
 
 Only the configured contacts can buy. They sign in with a one-time email link

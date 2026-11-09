@@ -123,5 +123,34 @@
     "explore_verifications_per_run": 3,
     "serpapi_searches_per_day": 9,
     "serpapi_searches_per_month": 245
+  },
+  "categories": {
+    "_note": "Defaults for the Logic panel. Changes saved on the site override these.",
+    "domestic": {
+      "min_days_out": 2,
+      "max_days_out": 150,
+      "min_trip_days": 2,
+      "max_trip_days": 14,
+      "show_under": 200,
+      "alert": {
+        "mode": "smart",
+        "under": 100,
+        "drop_percent": 30,
+        "min_samples": 8
+      }
+    },
+    "international": {
+      "min_days_out": 20,
+      "max_days_out": 180,
+      "min_trip_days": 5,
+      "max_trip_days": 21,
+      "show_under": 500,
+      "alert": {
+        "mode": "under",
+        "under": 500,
+        "drop_percent": 30,
+        "min_samples": 8
+      }
+    }
   }
 }

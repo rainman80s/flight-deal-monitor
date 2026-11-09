@@ -219,7 +219,7 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     const kind = kindOf(cfg, d);
     const sent: string[] = [];
     for (const c of cfg.contacts.filter((c) => c.email)) {
-      await emailer.send(c.email, dealEmail(d, kind, limitOf(cfg, d),
+      await emailer.send(c.email, dealEmail(d, kind, d.ping_reason ?? `under $${limitOf(cfg, d)}`,
         await actionUrl(cfg, d.code, c.name, "buy"), await actionUrl(cfg, d.code, c.name, "skip"),
         buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake)));
       sent.push(c.name);

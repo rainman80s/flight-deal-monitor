@@ -1,4 +1,5 @@
 import raw from "../config.json";
+import { type Categories, defaultCategories, setCategories } from "./settings";
 
 export interface Contact { name: string; phone: string; email: string }
 
@@ -71,6 +72,8 @@ export interface Config {
   bookingMode: "responder" | "both";
   maxPriceIncreasePercent: number;
   dailySpendCap: number;
+  /** Per-category deal rules (Logic panel). */
+  cats: Categories;
   env: Env;
 }
 
@@ -126,7 +129,9 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     maxPriceIncreasePercent: r.booking.max_price_increase_percent,
     dailySpendCap: r.booking.daily_spend_cap,
     env,
+    cats: defaultCategories(),
   };
+  setCategories(cfg, cfg.cats);
   validate(cfg);
   return cfg;
 }
@@ -171,8 +176,10 @@ export function kindOf(cfg: Config, x: { destination: string; kind?: string | nu
   if (x.kind === "domestic" || x.kind === "international") return x.kind;
   return isDomestic(cfg, x.destination) ? "domestic" : "international";
 }
-export const limitOf = (cfg: Config, x: { destination: string; kind?: string | null }) =>
-  kindOf(cfg, x) === "domestic" ? cfg.domesticMaxPrice : cfg.internationalMaxPrice;
+/** The category rules that apply to a fare/deal. */
+export const catOf = (cfg: Config, x: { destination: string; kind?: string | null }) => cfg.cats[kindOf(cfg, x)];
+/** The "show on the site" price limit for a fare/deal. */
+export const limitOf = (cfg: Config, x: { destination: string; kind?: string | null }) => catOf(cfg, x).showUnder;
 
 export const isDomestic = (cfg: Config, iata: string) => cfg.domestic.includes(iata);
 export const maxPriceFor = (cfg: Config, dest: string) =>

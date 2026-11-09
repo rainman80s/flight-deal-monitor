@@ -14,15 +14,18 @@
   const isGoogle = (url) => !url || /google\.com\/travel/.test(url);
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
-  const state = { origin: "", kind: "", sort: "recent", max: null, meta: null, deals: [] };
+  const state = { origin: "", sort: "value", meta: null, deals: [], logic: null };
 
   // ---------------- routing ----------------
   function route() {
-    const tab = location.hash === "#signup" ? "signup" : location.hash === "#account" ? "account" : "browse";
+    const tabs = { "#signup": "signup", "#account": "account", "#logic": "logic" };
+    const tab = tabs[location.hash] ?? "browse";
     $("#view-browse").hidden = tab !== "browse";
     $("#view-signup").hidden = tab !== "signup";
     $("#view-account").hidden = tab !== "account";
+    $("#view-logic").hidden = tab !== "logic";
     if (tab === "account" && typeof renderAccount === "function") renderAccount();
+    if (tab === "logic" && typeof renderLogic === "function") renderLogic();
     $(".segmented").dataset.active = tab;
     $$(".segmented a").forEach((a) => (a.dataset.tab === tab
       ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
@@ -80,10 +83,6 @@
         ...m.origins.map((o) => segButton(o.code, o.code, false, "radio")));
       $("#home").replaceChildren(...m.origins.map((o) => segButton(o.code, `${o.city} (${o.code})`, true, "toggle")));
 
-      const max = $("#max");
-      max.max = String(m.international_max);
-      max.value = max.max;
-      paintRange(max);
       for (const [id, v] of [["#dom", m.domestic_max], ["#intl", m.international_max]]) {
         const el = $(id);
         el.max = String(v);
@@ -98,61 +97,44 @@
 
   // ---------------- deals ----------------
   let reqId = 0;
+  const COLS = { international: ["#rows-intl", "#empty-intl", "#rule-intl"], domestic: ["#rows-dom", "#empty-dom", "#rule-dom"] };
+
   async function loadDeals() {
     const id = ++reqId;
     $("#board").classList.add("loading");
-    const q = new URLSearchParams({ sort: state.sort, limit: "60" });
-    if (state.origin) q.set("origin", state.origin);
-    if (state.kind) q.set("kind", state.kind);
-    if (state.max) q.set("max", String(state.max));
-    let deals = [];
-    try { deals = (await (await fetch(`/api/deals?${q}`)).json()).deals ?? []; } catch { /* empty state */ }
+    const fetchKind = async (kind) => {
+      const q = new URLSearchParams({ sort: state.sort, limit: "25", kind });
+      if (state.origin) q.set("origin", state.origin);
+      try { return (await (await fetch(`/api/deals?${q}`)).json()).deals ?? []; } catch { return []; }
+    };
+    const [intl, dom] = await Promise.all([fetchKind("international"), fetchKind("domestic")]);
     if (id !== reqId) return;
-    state.deals = deals;
+    state.deals = [...intl, ...dom];
     $("#board").classList.remove("loading");
-    renderBest(deals);
-    $("#rows").replaceChildren(...deals.map(row));
-    $("#empty").hidden = deals.length > 0;
-    const filtered = state.origin || state.kind || state.max;
-    // With no deals at all, the filters and column headings are just clutter.
-    const nothingYet = !deals.length && !filtered;
-    $(".toolbar").hidden = nothingYet;
-    $("#board .board-head").hidden = !deals.length;
-    if (!deals.length) {
-      $("#empty").textContent = filtered
-        ? "No deals match these filters. Try widening them."
-        : "No fare has come in under the limit yet. Fares that low are rare; below is what recent checks found, "
-          + "and you can check any route yourself above.";
+    for (const [kind, deals] of [["international", intl], ["domestic", dom]]) {
+      const [rows, empty] = COLS[kind];
+      $(rows).replaceChildren(...deals.map(row));
+      $(empty).hidden = deals.length > 0;
+      $(empty).textContent = state.origin
+        ? `Nothing from ${state.origin} right now.`
+        : kind === "international"
+          ? "Nothing abroad under the limit right now. Fares like that come and go; this list updates every hour."
+          : "Nothing in the US under the limit right now. This list updates every hour.";
     }
-    renderPreview(deals);
+    renderPreview(state.deals.filter((d) => d.pinged).concat(state.deals));
   }
 
-  function limitFor(d) {
-    const m = state.meta;
-    if (!m) return null;
-    return d.kind === "domestic" ? m.domestic_max : m.international_max;
-  }
-
-  function renderBest(deals) {
-    const scored = deals.map((d) => [d, limitFor(d) ? d.price / limitFor(d) : 1]).sort((a, b) => a[1] - b[1]);
-    const best = scored[0]?.[0];
-    $("#best").hidden = !best;
-    if (!best) return;
-    const lim = limitFor(best);
-    const pct = lim ? Math.round((1 - best.price / lim) * 100) : 0;
-    $("#best-why").textContent = lim
-      ? `Best value on this list: ${pct}% under the ${money(lim)} ${best.kind === "domestic" ? "US" : "international"} limit`
-      : "Best value on this list";
-    const h = $("#best-route");
-    h.textContent = `${best.origin_city} to ${best.destination_city}`;
-    const codes = document.createElement("span");
-    codes.className = "codes-inline";
-    codes.textContent = `${best.origin}–${best.destination}`;
-    h.append(codes);
-    $("#best-detail").textContent = `${short(best.depart_date)} to ${short(best.return_date)} · ${best.trip_days} days · `
-      + `${stopsPair(best)} · ${best.airlines.join(", ") || "airline varies"}`;
-    $("#best-price").textContent = money(best.price);
-    setLink($("#best-link"), best.booking_url, best.is_fake, true, best.is_fake ? null : tripOf(best));
+  /** One-line rule under each column header, from the Logic panel. */
+  function renderColumnRules(logic) {
+    if (!logic) return;
+    const line = (c) => {
+      const ping = c.alert.mode === "smart"
+        ? `pings at ${c.alert.drop_percent}%+ below usual`
+        : `pings under $${c.alert.under}`;
+      return `${c.min_days_out}+ days out · ${c.min_trip_days}–${c.max_trip_days} day trips · under $${c.show_under} · ${ping}`;
+    };
+    $(COLS.international[2]).textContent = line(logic.categories.international);
+    $(COLS.domestic[2]).textContent = line(logic.categories.domestic);
   }
 
   function setLink(a, url, fake, long = false, trip = null) {
@@ -181,13 +163,30 @@
     $(".o", n).textContent = d.origin;
     $(".d", n).textContent = d.destination;
     $(".city", n).textContent = d.destination_city;
-    $(".dates", n).textContent = `${short(d.depart_date)} – ${short(d.return_date)}`;
-    const days = $(".days", n);
-    days.textContent = `${d.trip_days} days`;
-    days.dataset.meta = ` · ${stops(Math.max(d.outbound_stops, d.return_stops))} · ${d.airlines.join(", ")}`;
-    $(".c-stops", n).textContent = stopsPair(d);
-    $(".c-air", n).textContent = d.airlines.join(", ") || "—";
-    $(".c-price", n).textContent = money(d.price);
+    const how = d.estimate
+      ? (d.airlines.length ? `${d.airlines.join(", ")} · Google price` : "price calendar estimate")
+      : `${stopsPair(d)} · ${d.airlines.join(", ") || "—"}`;
+    $(".dr-when", n).textContent = `${short(d.depart_date)} – ${short(d.return_date)} · ${d.trip_days} days · ${how}`;
+    const usual = $(".dr-usual", n);
+    if (d.pinged && d.ping_reason) {
+      const why = document.createElement("span");
+      why.className = "why";
+      why.textContent = `Pinged: ${d.ping_reason}`;
+      usual.append(why);
+    } else if (d.typical) {
+      usual.textContent = `Usually $${Math.round(d.typical.low)}–$${Math.round(d.typical.high)} on this route`;
+    } else {
+      usual.textContent = "Still learning this route's usual price";
+    }
+    const price = $(".dr-price", n);
+    if (d.pinged) {
+      const dot = document.createElement("span");
+      dot.className = "ping-dot";
+      dot.title = "Pinged";
+      price.append(dot);
+      n.classList.add("pinged");
+    }
+    price.append(money(d.price));
     setLink($("a", n), d.booking_url, d.is_fake, false, d.is_fake ? null : tripOf(d));
     $("a", n).setAttribute("aria-label", `Book ${d.origin_city} to ${d.destination_city}, ${money(d.price)}`);
     return n;
@@ -799,23 +798,149 @@
     });
   }
 
+  // ---------------- logic panel ----------------
+  // Mirrors settings.ts `describe` so the summary updates as you type.
+  function describeRules(kind, c) {
+    const label = kind === "domestic" ? "US trips" : "Trips abroad";
+    const ping = c.alert.mode === "smart"
+      ? `ping when a fare is at least ${c.alert.drop_percent}% below that route's usual price `
+        + `(under $${c.alert.under} until we've seen ${c.alert.min_samples} prices for the route)`
+      : `ping when a fare is under $${c.alert.under}`;
+    return `${label}: show round trips leaving ${c.min_days_out} to ${c.max_days_out} days from now, `
+      + `${c.min_trip_days} to ${c.max_trip_days} days long, under $${c.show_under}; ${ping}.`;
+  }
+
+  async function loadLogic() {
+    try { state.logic = await (await fetch("/api/logic", { credentials: "same-origin" })).json(); } catch { state.logic = null; }
+    renderColumnRules(state.logic);
+    return state.logic;
+  }
+
+  function readCat(sec) {
+    const v = (n) => Number($(`[name="${n}"]`, sec).value);
+    return {
+      min_days_out: v("min_days_out"), max_days_out: v("max_days_out"),
+      min_trip_days: v("min_trip_days"), max_trip_days: v("max_trip_days"), show_under: v("show_under"),
+      alert: { mode: $("input[type=radio]:checked", sec)?.value ?? "under", under: v("alert.under"),
+               drop_percent: v("alert.drop_percent"), min_samples: v("alert.min_samples") },
+    };
+  }
+
+  function catForm(kind, c, canEdit) {
+    const sec = $("#logic-cat-tpl").content.firstElementChild.cloneNode(true);
+    sec.dataset.kind = kind;
+    $(".lc-title", sec).textContent = kind === "domestic" ? "Domestic" : "International";
+    const set = (n, val) => { $(`[name="${n}"]`, sec).value = val; };
+    set("min_days_out", c.min_days_out); set("max_days_out", c.max_days_out);
+    set("min_trip_days", c.min_trip_days); set("max_trip_days", c.max_trip_days); set("show_under", c.show_under);
+    set("alert.under", c.alert.under); set("alert.drop_percent", c.alert.drop_percent); set("alert.min_samples", c.alert.min_samples);
+    $$("input[type=radio]", sec).forEach((r) => { r.name = `mode-${kind}`; r.checked = r.value === c.alert.mode; });
+    $$("input", sec).forEach((el) => {
+      el.disabled = !canEdit;
+      if (el.type !== "radio") el.id = `${kind}-${el.name.replace(".", "-")}`;
+    });
+    const refresh = () => {
+      const now = readCat(sec);
+      $(".lc-summary", sec).textContent = describeRules(kind, now);
+      $(".smart-only", sec).hidden = now.alert.mode !== "smart";
+    };
+    sec.addEventListener("input", refresh);
+    sec.addEventListener("change", refresh);
+    refresh();
+    return sec;
+  }
+
+  async function renderLogic() {
+    const logic = await loadLogic();
+    if (!logic) { $("#logic-cats").textContent = "Couldn't load the rules. Refresh to try again."; return; }
+    const canEdit = !!logic.can_edit;
+    $("#logic-readonly").hidden = canEdit;
+    $("#logic-save").hidden = !canEdit;
+    $("#logic-reset").hidden = !canEdit || !logic.customized;
+    $("#logic-cats").replaceChildren(catForm("international", logic.categories.international, canEdit),
+      catForm("domestic", logic.categories.domestic, canEdit));
+    $("#logic-updated").textContent = logic.customized && logic.updated_at
+      ? `Last changed ${ago(logic.updated_at)} by ${title(logic.updated_by || "")}.`
+      : "Using the default rules.";
+    renderLearned();
+  }
+
+  async function renderLearned() {
+    let routes = [];
+    try { routes = (await (await fetch("/api/baselines")).json()).routes ?? []; } catch { /* empty */ }
+    $("#learned").replaceChildren(...routes.map((b) => {
+      const li = document.createElement("li");
+      li.className = "row";
+      const cell = (cls, text) => { const s = document.createElement("span"); s.className = cls; s.textContent = text; return s; };
+      const route = document.createElement("span");
+      const codes = document.createElement("span");
+      codes.className = "codes";
+      const o = document.createElement("b"); o.textContent = b.origin;
+      const d = document.createElement("b"); d.textContent = b.destination;
+      const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "→";
+      codes.append(o, arrow, d);
+      route.append(codes, cell("city", `${b.destination_city} · ${b.kind === "domestic" ? "US" : "abroad"}`));
+      li.append(route, cell("num-c", `$${b.low}–$${b.high}`), cell("num-c l-typ", `$${b.median}`),
+        cell("num-c l-n sub", `${b.samples}`));
+      return li;
+    }));
+    $("#learned-empty").hidden = routes.length > 0;
+  }
+
+  function wireLogic() {
+    $("#logic-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $("#logic-msg");
+      msg.className = "t-msg";
+      msg.textContent = "Saving…";
+      $$("#logic-cats .f-err").forEach((x) => { x.textContent = ""; });
+      $$("#logic-cats [aria-invalid]").forEach((x) => x.removeAttribute("aria-invalid"));
+      const body = {};
+      $$("#logic-cats .logic-cat").forEach((sec) => { body[sec.dataset.kind] = readCat(sec); });
+      try {
+        const r = await fetch("/api/logic", { method: "PUT", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await r.json().catch(() => ({}));
+        if (data.ok) {
+          msg.textContent = "Saved. New rules apply from the next search.";
+          msg.classList.add("ok");
+          await loadLogic();
+          $("#logic-reset").hidden = false;
+          $("#logic-updated").textContent = `Last changed just now by ${title(state.me.name || "")}.`;
+          loadDeals();
+        } else {
+          msg.textContent = data.error || "Couldn't save.";
+          msg.classList.add("err");
+          for (const [kind, errs] of Object.entries(data.fields || {})) {
+            const sec = $(`.logic-cat[data-kind="${kind}"]`);
+            for (const [k, v] of Object.entries(errs)) {
+              const err = $(`.f-err[data-for="${k}"]`, sec);
+              if (err) err.textContent = v;
+              $(`[name="${k}"]`, sec)?.setAttribute("aria-invalid", "true");
+            }
+          }
+        }
+      } catch {
+        msg.textContent = "Couldn't reach the server.";
+        msg.classList.add("err");
+      }
+    });
+    $("#logic-reset").addEventListener("click", async () => {
+      if (!confirm("Go back to the default rules?")) return;
+      await fetch("/api/logic/reset", { method: "POST", credentials: "same-origin" }).catch(() => {});
+      $("#logic-msg").textContent = "Back to the defaults.";
+      await renderLogic();
+      loadDeals();
+    });
+  }
+
   // ---------------- boot ----------------
   wireRadio($('[data-filter="origin"]'), (v) => { state.origin = v; loadDeals(); });
-  wireRadio($('[data-filter="kind"]'), (v) => { state.kind = v; loadDeals(); });
   wireRadio($('[data-filter="sort"]'), (v) => { state.sort = v; loadDeals(); });
-  const max = $("#max");
-  let t;
-  max.addEventListener("input", () => {
-    paintRange(max);
-    const top = Number(max.value) >= Number(max.max);
-    state.max = top ? null : Number(max.value);
-    $("#max-out").textContent = top ? "any price" : money(max.value);
-    clearTimeout(t);
-    t = setTimeout(loadDeals, 180);
-  });
   wireSignup();
   route();
   wireSearch();
   wireAccount();
-  Promise.all([loadMeta(), loadMe()]).then(() => Promise.all([loadDeals(), loadChecks()]));
+  wireLogic();
+  Promise.all([loadMeta(), loadMe(), loadLogic()]).then(() => Promise.all([loadDeals(), loadChecks()]));
 })();

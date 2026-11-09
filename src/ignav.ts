@@ -112,17 +112,25 @@ export class IgnavProvider implements FareProvider {
       + ` (limit $${limit})`;
     this.notes.push(note);
     console.log(note);
+    // The cheapest date under the limit, as a price-calendar estimate (no extra request).
+    // The cycle confirms it with confirm() only if it's good enough to ping.
     const hit = sorted.find((x) => x.p! < limit);
-    const best = hit && { departure_date: hit.d, return_date: hit.r, price: { amount: hit.p! } };
-    if (!best) return [];
-    if (this.verifyLeft <= 0) {
-      console.log(`calendar ${q.origin}-${q.destination} ${best.departure_date} ~$${best.price!.amount}: `
-        + "not confirmed this run (verification limit); it will come up again");
-      return [];
-    }
-    this.verifyLeft--;
-    return this.exact({ origin: q.origin, destination: q.destination, departDate: best.departure_date,
-      returnDate: best.return_date ?? addDays(best.departure_date, q.stayDays!), maxPrice: q.maxPrice });
+    if (!hit) return [];
+    return [{
+      provider: "ignav-calendar", origin: q.origin, destination: q.destination,
+      departDate: hit.d, returnDate: hit.r ?? addDays(hit.d, q.stayDays!), price: hit.p!, currency: "USD",
+      airlines: [], outboundStops: 0, returnStops: 0, offerId: null,
+      bookingUrl: googleFlightsUrl(q.origin, q.destination, hit.d, hit.r ?? addDays(hit.d, q.stayDays!)),
+      isFake: false,
+    }];
+  }
+
+  /** Exact search for a fare's dates: the cheapest bookable itinerary now, or null. One request. */
+  async confirm(f: Fare): Promise<Fare | null> {
+    const exact = await this.exact({ origin: f.origin, destination: f.destination, departDate: f.departDate,
+      returnDate: f.returnDate });
+    const best = exact.filter((x) => x.currency === "USD").sort((a, b) => a.price - b.price)[0];
+    return best ? { ...best, kind: f.kind, destName: f.destName } : null;
   }
 
   private async exact(q: SearchQuery): Promise<Fare[]> {

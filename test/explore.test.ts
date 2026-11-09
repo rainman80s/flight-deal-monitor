@@ -89,7 +89,7 @@ describe("explore runs", () => {
     // DEN ($140) isn't under $100, so it's never confirmed; OAK rose to $120 on confirmation.
     expect(h.ignavCalls.filter((c) => c.startsWith("/fares/round-trip")).map((c) => c.split(" ")[1]).sort()).toEqual(["LAX", "NRT", "OAK"]);
     expect(r.deals.map((d) => [d.destination, d.price, d.kind]).sort()).toEqual([["LAX", 66, "domestic"], ["NRT", 279, "international"]]);
-    expect(r.notes!.join("\n")).toMatch(/OAK.*not confirmed \(now \$120\)/);
+    expect(r.notes!.join("\n")).toMatch(/OAK.*confirmed at \$120/); // then dropped: over the $100 limit
     const email = h.notifier.sent.find((m) => m.kind === "email" && m.email!.subject.includes("Los Angeles"));
     expect(email).toBeTruthy();
   });
