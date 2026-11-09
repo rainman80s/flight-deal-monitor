@@ -80,7 +80,7 @@ export function exploreFares(origin: string, dests: ExploreDestination[]): Fare[
 
 /** The Explore key, under any of the names it may have been saved as. */
 export function serpApiKey(env: Record<string, unknown>): string | null {
-  for (const k of ["SERPAPI_KEY", "SERPAPI_API_KEY", "serpapi-key", "serpapi_key"]) {
+  for (const k of ["SERPAPI_KEY", "SERPAPI_API_KEY", "serpapi-key", "serpapi_key", "serp-api", "SERP_API"]) {
     const v = env[k];
     if (typeof v === "string" && v) return v;
   }
