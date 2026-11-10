@@ -131,6 +131,8 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
 
     const email = String(body.email ?? "").trim().toLowerCase();
     if (!EMAIL_RE.test(email)) return json({ ok: false, error: "That email doesn't look right." }, 400);
+    // Owners already get every alert (with Buy/Skip) and are skipped as subscribers anyway.
+    if (cfg.contacts.some((c) => c.email && c.email.toLowerCase() === email)) return json({ ok: true, status: "owner" });
     const origins = Array.isArray(body.origins)
       ? [...new Set(body.origins.map((o) => String(o).toUpperCase()))].filter((o) => cfg.origins.includes(o))
       : [];

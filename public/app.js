@@ -775,7 +775,9 @@
         });
         const data = await r.json().catch(() => ({}));
         if (data.ok) {
-          msg.textContent = data.status === "updated"
+          msg.textContent = data.status === "owner"
+            ? "You're one of this site's owners, so you already get every deal alert, with Buy buttons. Nothing to sign up for."
+            : data.status === "updated"
             ? "Saved. Your airports and limits are updated."
             : `Sent a confirmation link to ${email.value.trim()}. Alerts start once you tap it.`;
           msg.classList.add("ok");

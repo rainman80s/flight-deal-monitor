@@ -301,3 +301,14 @@ describe("visitor records", () => {
     expect(keys).toEqual(["rl_contact_abc_day_2026-11-10"]);
   });
 });
+
+describe("owners on the sign-up form", () => {
+  it("are told they already get alerts, and nothing is stored or emailed", async () => {
+    const s = site();
+    const owner = s.cfg.contacts.find((c) => c.email)!.email;
+    const r = await s.subscribe({ email: owner.toUpperCase(), origins: ["SEA"] });
+    expect(r.body).toEqual({ ok: true, status: "owner" });
+    expect(s.emails).toHaveLength(0);
+    expect(await s.subs.byEmail?.(owner.toLowerCase())).toBeFalsy();
+  });
+});
