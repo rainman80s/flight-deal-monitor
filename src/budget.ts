@@ -56,3 +56,21 @@ export class Budget {
     return { today: await get(k.day), total: await get(k.total), dailyLimit: this.dailyLimit, totalLimit: this.totalLimit };
   }
 }
+
+/** A short keyed hash of a visitor's IP, so rate-limit records never hold the address itself. */
+export async function visitorTag(secret: string, ip: string): Promise<string> {
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${secret}`));
+  return [...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Per-visitor daily limit (searches, sign-ins, contact messages). Keys start with "rl_" so they can be cleaned up. */
+export const visitorLimit = (db: D1Database, what: string, tag: string, perDay: number, now?: () => Date) =>
+  new Budget(db, `rl_${what}_${tag}`, perDay, Number.MAX_SAFE_INTEGER, now);
+
+/** Delete per-visitor rate-limit records older than `days` (the privacy policy promises this). */
+export async function pruneVisitorRecords(db: D1Database, now = new Date(), days = 7) {
+  const cutoff = utcDate(new Date(now.getTime() - days * 86400000));
+  await db.prepare("DELETE FROM state WHERE (key LIKE 'rl\\_%' ESCAPE '\\' OR key LIKE 'visitor\\_search\\_%' ESCAPE '\\' "
+    + "OR key LIKE 'login\\_%' ESCAPE '\\') AND (key LIKE '%\\_total' ESCAPE '\\' OR substr(key, -10) < ?)").bind(cutoff).run();
+  await db.prepare("DELETE FROM signup_attempts WHERE at < ?").bind(new Date(now.getTime() - days * 86400000).toISOString()).run();
+}

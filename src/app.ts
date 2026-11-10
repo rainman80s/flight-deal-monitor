@@ -25,6 +25,7 @@ import { dealSpeech } from "./messages";
 import type { BookingProvider, Deal, FareProvider } from "./models";
 import { runCycle } from "./monitor";
 import type { Store } from "./store";
+import { frameFor } from "./email";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
 import { ignavBudget, makeExplore, serpapiBudget } from "./providers";
@@ -221,7 +222,7 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     for (const c of cfg.contacts.filter((c) => c.email)) {
       await emailer.send(c.email, dealEmail(d, kind, d.ping_reason ?? `under $${limitOf(cfg, d)}`,
         await actionUrl(cfg, d.code, c.name, "buy"), await actionUrl(cfg, d.code, c.name, "skip"),
-        buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake)));
+        buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake), frameFor(cfg)));
       sent.push(c.name);
     }
     return json({ deal: d.code, sent });

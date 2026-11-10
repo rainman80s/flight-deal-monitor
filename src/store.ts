@@ -12,7 +12,7 @@ function randomCode(): string {
 }
 
 export class Store {
-  constructor(private db: D1Database) {}
+  constructor(readonly db: D1Database) {}
 
   // --- state ---
   async getState(key: string): Promise<string | null> {

@@ -5,11 +5,12 @@
  *   GET  /api/deals?origin=&kind=&max=&sort=&limit=   recent deals for Browse
  *   POST /api/subscribe            JSON {email, origins, domestic_max, international_max, website}
  *   GET  /u/confirm?id=&t=         confirmation page (button)   POST performs it
- *   GET  /u/unsubscribe?id=&t=     unsubscribe page (button)    POST performs it
+ *   GET  /u/unsubscribe?id=&t=     unsubscribe page (button)    POST performs it (also one-click from mail apps)
+ *   POST /api/contact              JSON {name, email, message, website}: emails the owner, reply-to the sender
  */
 import type { Deps } from "./app";
 import { type Config, isDomestic, kindOf } from "./config";
-import { Budget, BudgetExceeded } from "./budget";
+import { Budget, BudgetExceeded, visitorLimit, visitorTag } from "./budget";
 import { type CalendarDay, CheckStore } from "./checks";
 import { addDays, daysBetween, localParts, utcDate } from "./dates";
 import { rejectionReason } from "./rules";
@@ -141,7 +142,7 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
         + `and $${cfg.internationalMaxPrice} international.` }, 400);
     }
 
-    const ip = req.headers.get("CF-Connecting-IP") ?? "local";
+    const ip = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
     if (await subs.throttled(ip)) return json({ ok: false, error: "Too many sign-ups. Try again in an hour." }, 429);
 
     const s = await subs.upsert(email, origins, dom, intl);
@@ -158,6 +159,48 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
         + "email its owner until a sending domain is set up." }, 502);
     }
     return json({ ok: true, status: "check_email" });
+  }
+
+  // ---- Contact form: emails the owner, never shows their address ----
+  if (p === "/api/contact" && req.method === "POST") {
+    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
+    let body: Record<string, unknown>;
+    try { body = await req.json(); } catch { return json({ ok: false, error: "Bad request." }, 400); }
+    if (body.website) return json({ ok: true }); // honeypot: pretend success
+    const name = String(body.name ?? "").trim().slice(0, 80);
+    const email = String(body.email ?? "").trim().toLowerCase();
+    const message = String(body.message ?? "").trim();
+    if (!EMAIL_RE.test(email)) return json({ ok: false, error: "That email doesn't look right." }, 400);
+    if (message.length < 5) return json({ ok: false, error: "Write a message first." }, 400);
+    if (message.length > 4000) return json({ ok: false, error: "Keep it under 4,000 characters." }, 400);
+
+    const owner = cfg.contacts.find((c) => c.email);
+    const key = cfg.env.RESEND_API_KEY;
+    if (!owner || !key) return json({ ok: false, error: "Messages aren't set up on this site yet." }, 503);
+    const tag = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
+    try {
+      await visitorLimit(cfg.env.DB, "contact", tag, 3).take();
+      await new Budget(cfg.env.DB, "contact", 20, Number.MAX_SAFE_INTEGER).take();
+    } catch (e) {
+      if (e instanceof BudgetExceeded) return json({ ok: false, error: "Too many messages today. Try again tomorrow." }, 429);
+      throw e;
+    }
+    const who = name ? `${name} <${email}>` : email;
+    try {
+      await new ResendEmailer(key, String(cfg.env.EMAIL_FROM ?? cfg.emailFrom)).send(owner.email, {
+        subject: `Fare Radar message from ${name || email}`,
+        text: `From: ${who}\n\n${message}\n\n(Reply to this email to answer them.)`,
+        html: `<div style="font-family:-apple-system,system-ui,sans-serif;font-size:15px;line-height:1.55;max-width:560px">`
+          + `<p style="color:#666;margin:0 0 12px">Sent from the Fare Radar contact form by <b>${escHtml(who)}</b>. `
+          + `Reply to this email to answer them.</p>`
+          + `<div style="white-space:pre-wrap;padding:14px 16px;border-radius:10px;background:#f4f2ea">${escHtml(message)}</div></div>`,
+        replyTo: email,
+      });
+    } catch (e) {
+      console.error("contact email failed", e);
+      return json({ ok: false, error: "We couldn't send that. Try again in a bit." }, 502);
+    }
+    return json({ ok: true });
   }
 
   // ---- Logic panel ----
@@ -224,7 +267,10 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
   const sub = p.match(/^\/u\/(confirm|unsubscribe)$/);
   if (sub && (req.method === "GET" || req.method === "POST")) {
     const purpose = sub[1] as "confirm" | "unsubscribe";
-    const params = req.method === "POST" ? new URLSearchParams(await req.text()) : url.searchParams;
+    // A POST is either our own form (id and t in the body) or a mail app's one-click
+    // unsubscribe (RFC 8058: body "List-Unsubscribe=One-Click", id and t in the URL).
+    const params = new URLSearchParams(url.searchParams);
+    if (req.method === "POST") for (const [k, v] of new URLSearchParams(await req.text())) params.set(k, v);
     const id = Number(params.get("id")), t = params.get("t") ?? "";
     if (!(await verifySubscriberToken(cfg, id, purpose, t))) {
       return page("Invalid link", "<h2>That link isn't valid.</h2><p class=muted>It may be incomplete or altered.</p>", 403);
@@ -261,9 +307,8 @@ export const siteSearchBudget = (cfg: Config) =>
 
 async function visitorBudget(cfg: Config, ip: string) {
   // Store a short hash, not the raw IP.
-  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${ip}|${String(cfg.env.LINK_SECRET ?? "")}`));
-  const tag = [...new Uint8Array(h).slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return new Budget(cfg.env.DB, `visitor_search_${tag}`, cfg.siteSearchesPerVisitor, Number.MAX_SAFE_INTEGER);
+  const tag = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), ip);
+  return visitorLimit(cfg.env.DB, "search", tag, cfg.siteSearchesPerVisitor);
 }
 
 const lastOfMonth = (ym: string) => {

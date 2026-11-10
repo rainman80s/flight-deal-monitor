@@ -5,7 +5,11 @@
 import { type Config, type Contact, secret } from "./config";
 import { TwilioNotifier } from "./twilio";
 
-export interface Email { subject: string; text: string; html: string }
+export interface Email {
+  subject: string; text: string; html: string;
+  headers?: Record<string, string>;
+  replyTo?: string;
+}
 
 export interface Notifier {
   email(to: string, msg: Email): Promise<void>;
@@ -37,7 +41,11 @@ export class ResendEmailer {
     const res = await this.fetcher("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: this.from, to: [to], subject: msg.subject, text: msg.text, html: msg.html }),
+      body: JSON.stringify({
+        from: this.from, to: [to], subject: msg.subject, text: msg.text, html: msg.html,
+        ...(msg.headers ? { headers: msg.headers } : {}),
+        ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
+      }),
     });
     if (!res.ok) throw new Error(`Resend failed: ${res.status} ${await res.text()}`);
     const body = await res.json() as { id?: string };

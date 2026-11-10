@@ -6,7 +6,8 @@
 import { type Config, kindOf, secret } from "./config";
 import { shortDate } from "./dates";
 import { subscriberToken } from "./links";
-import { city, destCity, tripDays } from "./messages";
+import { BRAND, button, escHtml, fine, frameFor, layout, p, priceLine, textFooter, unsubscribeHeaders } from "./email";
+import { city, destCity, stops, tripDays } from "./messages";
 import type { Deal } from "./models";
 import type { Notifier } from "./notify";
 
@@ -85,16 +86,6 @@ export class SubscriberStore {
   }
 }
 
-const escHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const wrap = (inner: string) =>
-  `<div style="font-family:-apple-system,system-ui,sans-serif;max-width:520px;color:#1a1a1a;font-size:15px;line-height:1.55">${inner}</div>`;
-
-const button = (href: string, label: string) =>
-  `<a href="${escHtml(href)}" style="display:inline-block;padding:12px 28px;border-radius:999px;background:#0a84ff;`
-  + `color:#fff;text-decoration:none;font-weight:600">${label}</a>`;
-
 export async function subscriberLink(cfg: Config, s: Subscriber, purpose: "confirm" | "unsubscribe") {
   const base = secret(cfg, "PUBLIC_BASE_URL").replace(/\/$/, "");
   return `${base}/u/${purpose}?id=${s.id}&t=${await subscriberToken(cfg, s.id, purpose)}`;
@@ -103,14 +94,26 @@ export async function subscriberLink(cfg: Config, s: Subscriber, purpose: "confi
 export async function confirmationEmail(cfg: Config, s: Subscriber) {
   const url = await subscriberLink(cfg, s, "confirm");
   const origins = (JSON.parse(s.origins) as string[]).map(city).join(" and ");
+  const f = frameFor(cfg);
+  const reason = `You're getting this because someone entered ${s.email} on ${BRAND}. `
+    + "No alerts are sent until you confirm.";
+  const b = (x: string | number) => `<b style="color:#14262c">${x}</b>`;
   return {
-    subject: "Confirm your flight deal alerts",
-    text: `Confirm your flight deal alerts from ${origins}:\n${url}\n\nIf you didn't sign up, ignore this email.`,
-    html: wrap(`<h2 style="margin:0 0 8px">One tap to confirm</h2>
-<p>You asked for round-trip deal alerts from <b>${escHtml(origins)}</b>: domestic under
-<b>$${s.domestic_max}</b>, international under <b>$${s.international_max}</b>.</p>
-<p style="margin:22px 0">${button(url, "Confirm alerts")}</p>
-<p style="color:#666;font-size:13px">If you didn't sign up, ignore this email and nothing will happen.</p>`),
+    subject: "Confirm your Fare Radar deal alerts",
+    text: `Confirm your flight deal alerts from ${origins} (domestic under $${s.domestic_max}, `
+      + `international under $${s.international_max}):\n${url}\n\nIf you didn't sign up, ignore this email and nothing will happen.\n`
+      + textFooter(f, reason),
+    html: layout(f, {
+      preheader: `Tap to start getting cheap round trips from ${origins}.`,
+      eyebrow: "Almost there",
+      heading: "One tap to confirm",
+      body: p(`You asked for round-trip deal alerts from ${b(escHtml(origins))}: domestic under `
+          + `${b(`$${s.domestic_max}`)}, international under ${b(`$${s.international_max}`)}.`)
+        + p("We'll email you only when a fare beats your limit. No newsletters, no digests.")
+        + `<div style="margin:22px 0 4px">${button(url, "Confirm alerts")}</div>`
+        + fine("If you didn't sign up, ignore this email and nothing will happen."),
+      reason,
+    }),
   };
 }
 
@@ -120,17 +123,28 @@ export async function subscriberDealEmail(cfg: Config, s: Subscriber, d: Deal) {
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ");
   const subject = `✈ ${city(d.origin)} → ${destCity(d)} $${d.price.toFixed(0)} round trip, `
     + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
+  const f = frameFor(cfg);
+  const limit = kind === "domestic" ? s.domestic_max : s.international_max;
+  const reason = `You're getting this because ${s.email} signed up for ${BRAND} deal alerts `
+    + `(${kind} fares under $${limit}).`;
   const text = `${d.origin} → ${d.destination} (${destCity(d)}), $${d.price.toFixed(0)} round trip (${kind})\n`
     + `${shortDate(d.depart_date)} → ${shortDate(d.return_date)} (${tripDays(d)} days) · ${airlines}\n\n`
-    + `Book: ${d.booking_url ?? ""}\n\nPrices move fast; check before you book.\nUnsubscribe: ${unsub}\n`;
-  const html = wrap(`<h2 style="margin:0 0 4px">${escHtml(city(d.origin))} → ${escHtml(destCity(d))}</h2>
-<p style="font-size:28px;font-weight:700;margin:4px 0">$${d.price.toFixed(0)}
- <span style="font-size:15px;font-weight:400;color:#555">round trip · ${kind}</span></p>
-<p>${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))} (${tripDays(d)} days) · ${escHtml(airlines)}</p>
-${d.booking_url ? `<p style="margin:22px 0">${button(d.booking_url, "See it on Google Flights")}</p>` : ""}
-<p style="color:#666;font-size:13px">Prices move fast; check before you book.
- <a href="${escHtml(unsub)}" style="color:#666">Unsubscribe</a></p>`);
-  return { subject, text, html };
+    + `Book: ${d.booking_url ?? ""}\n\nPrices move fast; check the fare before you pay.\n` + textFooter(f, reason, unsub);
+  const html = layout(f, {
+    preheader: `$${d.price.toFixed(0)} round trip, ${shortDate(d.depart_date)} to ${shortDate(d.return_date)}. `
+      + `Under your $${limit} limit.`,
+    eyebrow: `Deal alert · ${kind === "international" ? "International" : "Domestic"}`,
+    heading: `${escHtml(city(d.origin))} → ${escHtml(destCity(d))}`,
+    body: priceLine(`$${d.price.toFixed(0)}`, `round trip · ${tripDays(d)} days`)
+      + p(`<b style="color:#14262c">${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))}</b><br>`
+        + `${stops(d.outbound_stops) === stops(d.return_stops) ? `${stops(d.outbound_stops)} both ways` : `${stops(d.outbound_stops)} out, ${stops(d.return_stops)} back`}`
+        + (airlines ? ` · ${escHtml(airlines)}` : ""))
+      + (d.booking_url ? `<div style="margin:22px 0 4px">${button(d.booking_url, "See it on Google Flights")}</div>` : "")
+      + fine("Prices move fast. Check the fare before you pay. We don't earn anything if you book."),
+    reason,
+    unsubscribeUrl: unsub,
+  });
+  return { subject, text, html, headers: unsubscribeHeaders(unsub) };
 }
 
 /** Email every matching subscriber about a real (not fake) deal. Returns how many were emailed. */

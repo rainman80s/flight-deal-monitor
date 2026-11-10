@@ -13,12 +13,13 @@
  */
 import type { Deps } from "./app";
 import { clearCookie, contactByEmail, currentUser, loginLink, sameOrigin, sessionCookie, verifyLoginLink } from "./auth";
-import { Budget } from "./budget";
+import { visitorLimit, visitorTag } from "./budget";
 import type { Config } from "./config";
 import { loadAllTravelers, ProfileStore, publicProfile, validateProfile } from "./profiles";
 import { daysBetween, utcDate } from "./dates";
 import { DuffelProvider, viewOffer } from "./duffel";
 import { escHtml, page } from "./html";
+import { BRAND, button, fine, frameFor, layout, p as para, textFooter } from "./email";
 import { ResendEmailer } from "./notify";
 import { bookOffer } from "./purchase";
 
@@ -66,21 +67,28 @@ export async function ownerRoute(req: Request, url: URL, deps: Deps): Promise<Re
     if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
     const b = await body(req);
     const email = String(b?.email ?? "");
-    const ip = req.headers.get("CF-Connecting-IP") ?? "local";
-    const limiter = new Budget(cfg.env.DB, `login_${ip.replace(/[^0-9a-f:.]/gi, "")}`, 5, Number.MAX_SAFE_INTEGER);
+    const tag = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
+    const limiter = visitorLimit(cfg.env.DB, "login", tag, 5);
     try { await limiter.take(); } catch { return json({ ok: false, error: "Too many attempts. Try again tomorrow." }, 429); }
     const c = contactByEmail(cfg, email);
     if (c && typeof cfg.env.RESEND_API_KEY === "string" && cfg.env.RESEND_API_KEY) {
       try {
         const link = await loginLink(cfg, c);
+        const f = frameFor(cfg);
+        const reason = `You're getting this because someone asked to sign in to ${BRAND} with ${c.email}.`;
         await new ResendEmailer(cfg.env.RESEND_API_KEY, String(cfg.env.EMAIL_FROM ?? cfg.emailFrom)).send(c.email, {
           subject: "Your Fare Radar sign-in link",
-          text: `Sign in to book flights on Fare Radar (link works for 20 minutes):\n${link}\n\nDidn't ask for this? Ignore it.`,
-          html: `<div style="font-family:-apple-system,system-ui,sans-serif;font-size:15px;line-height:1.5">`
-            + `<p>Sign in to book flights on Fare Radar. The link works for 20 minutes.</p>`
-            + `<p><a href="${escHtml(link)}" style="display:inline-block;padding:11px 22px;border-radius:999px;`
-            + `background:#0a7cff;color:#fff;text-decoration:none;font-weight:600">Sign in</a></p>`
-            + `<p style="color:#666;font-size:13px">Didn't ask for this? Ignore it.</p></div>`,
+          text: `Sign in to book flights on Fare Radar (link works for 20 minutes):\n${link}\n\n`
+            + `Didn't ask for this? Ignore it; nobody can sign in without this link.\n` + textFooter(f, reason),
+          html: layout(f, {
+            preheader: "Your sign-in link. It works for 20 minutes.",
+            eyebrow: "Sign in",
+            heading: "Welcome back",
+            body: para("Tap below to sign in and book flights. The link works for 20 minutes and only once.")
+              + `<div style="margin:22px 0 4px">${button(link, "Sign in to Fare Radar")}</div>`
+              + fine("Didn't ask for this? Ignore it. Nobody can sign in without this link."),
+            reason,
+          }),
         });
       } catch (e) { console.error("login email failed", e); }
     }

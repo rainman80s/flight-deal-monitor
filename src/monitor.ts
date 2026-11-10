@@ -10,10 +10,11 @@
  *             pinging.
  */
 import { type Baseline, pingReason, PriceHistory } from "./baselines";
-import { BudgetExceeded } from "./budget";
+import { BudgetExceeded, pruneVisitorRecords } from "./budget";
 import { CheckStore } from "./checks";
 import { catOf, type Config, kindOf } from "./config";
 import { localParts } from "./dates";
+import { frameFor } from "./email";
 import { actionUrl } from "./links";
 import { buyMeaning, dealEmail, dealText } from "./messages";
 import { type Deal, type Fare, type FareProvider, NotImplementedError } from "./models";
@@ -49,7 +50,8 @@ async function alert(cfg: Config, store: Store, notifier: Notifier, d: Deal, cal
     if (cfg.channels.includes("email") && c.email) {
       try {
         const msg = dealEmail(d, kind, why, await actionUrl(cfg, d.code, c.name, "buy"),
-          await actionUrl(cfg, d.code, c.name, "skip"), buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake));
+          await actionUrl(cfg, d.code, c.name, "skip"), buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake),
+          frameFor(cfg));
         await notifier.email(c.email, msg);
       } catch (e) { console.error(`email to ${c.name} failed`, e); }
     }
@@ -135,7 +137,10 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     for (const c of provider.checks ?? []) {
       await history.recordCalendar(c.origin, c.destination, c.stayDays, c.days, "calendar", now);
     }
-    if (cycle % 24 === 0) await history.prune(now);
+    if (cycle % 24 === 0) {
+      await history.prune(now);
+      await pruneVisitorRecords(store.db, now);
+    }
   } catch (e) { console.error("saving price history failed", e); }
   if (provider.checks?.length) {
     const saved = new CheckStore(cfg.env.DB);

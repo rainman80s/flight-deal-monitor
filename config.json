@@ -100,7 +100,8 @@
     "channels": [
       "email"
     ],
-    "email_from": "Flight Deals <onboarding@resend.dev>",
+    "email_from": "Fare Radar <onboarding@resend.dev>",
+    "mailing_address": "",
     "contacts": [
       "RAN",
       "BROCK"

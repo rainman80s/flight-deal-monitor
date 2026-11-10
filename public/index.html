@@ -6,11 +6,9 @@
   <title>Fare Radar</title>
   <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock.">
   <meta name="theme-color" content="#0e1d22">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap">
   <link rel="preload" href="/bg.jpg" as="image">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a7cff'/%3E%3Cpath d='M12 46 C 24 18, 40 18, 52 30' stroke='white' stroke-width='5' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='46' r='5' fill='white'/%3E%3Ccircle cx='52' cy='30' r='5' fill='white'/%3E%3C/svg%3E">
+  <link rel="preload" href="/fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%23f6b443%27/%3E%3Cpath transform=%27translate(12 12) scale(1.666)%27 fill=%27%23231703%27 d=%27M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z%27/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -257,6 +255,202 @@
     </div>
   </section>
 
+  <!-- ===================== About & FAQ ===================== -->
+  <section id="view-about" class="view page" aria-labelledby="about-title" hidden>
+    <article class="prose">
+      <h1 id="about-title">About Fare Radar</h1>
+      <p class="lead-p">Fare Radar is a small, independent site that watches round-trip fares out of Seattle (SEA) and
+        Portland (PDX) around the clock and lists the cheap ones. It started as a tool for a couple of friends who
+        travel a lot. Anyone can browse the deals or get them by email, for free.</p>
+      <p class="callout-p">No ads, no affiliate links, no commissions. We don't earn anything when you book a flight.</p>
+
+      <h2>Questions</h2>
+      <details open><summary>Where do the fares come from?</summary>
+        <p>From Google Flights results (fetched through SerpApi) and from Ignav's fare search. We check about once an
+          hour and double-check a fare before we alert anyone about it.</p></details>
+      <details><summary>Why did the price change when I clicked through?</summary>
+        <p>Airfares change constantly. A fare here is the price we saw when we found it, and cheap seats can sell out
+          in minutes. Always check the final price before you pay.</p></details>
+      <details><summary>How do you decide what counts as a deal?</summary>
+        <p>Each column has its own rules for how far out the trip leaves, how long it is and how cheap it has to be.
+          For US trips we also learn each route's usual price and flag fares well below it.
+          The <a href="#logic">Logic page</a> lists the exact rules.</p></details>
+      <details><summary>Can I book on this site?</summary>
+        <p>Booking here is limited to the site's owners. Everyone else books with the airline or through Google
+          Flights; every deal links there.</p></details>
+      <details><summary>How do deal alerts work?</summary>
+        <p><a href="#signup">Sign up</a> with your email, pick your airports and the most you'd pay. You confirm once,
+          then get an email only when a fare beats your limit. Every email has a one-tap unsubscribe link.</p></details>
+      <details><summary>Which airports do you cover?</summary>
+        <p>Departures from Seattle-Tacoma (SEA) and Portland (PDX) for now, to about 50 cities in the US and abroad.
+          Prices are round trip, per person, economy, in US dollars.</p></details>
+      <details><summary>Does it cost anything?</summary>
+        <p>No. The site runs on free and low-cost services and isn't trying to make money.</p></details>
+      <details><summary>Something's wrong or missing.</summary>
+        <p><a href="#contact">Send us a note</a>. We read everything.</p></details>
+    </article>
+  </section>
+
+  <!-- ===================== Contact ===================== -->
+  <section id="view-contact" class="view page" aria-labelledby="contact-title" hidden>
+    <div class="prose">
+      <h1 id="contact-title">Contact</h1>
+      <p class="lead-p">Questions, a fare that looked wrong, a privacy request or an accessibility problem: write to us
+        here. We usually reply within a few days.</p>
+      <form id="contact-form" class="contact-form glass-panel" novalidate>
+        <label class="f"><span class="field-label">Your name (optional)</span>
+          <input name="name" autocomplete="name" maxlength="80"></label>
+        <label class="f"><span class="field-label">Your email</span>
+          <input name="email" type="email" autocomplete="email" inputmode="email" required></label>
+        <label class="f"><span class="field-label">Message</span>
+          <textarea name="message" rows="6" maxlength="4000" required></textarea></label>
+        <div class="hp" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
+        <div class="t-actions">
+          <button class="btn primary" type="submit">Send message</button>
+          <span class="t-msg" id="contact-msg" role="status" aria-live="polite"></span>
+        </div>
+        <p class="fine">We use your email only to reply. See the <a href="#privacy">privacy policy</a>.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================== Privacy ===================== -->
+  <section id="view-privacy" class="view page" aria-labelledby="privacy-title" hidden>
+    <article class="prose">
+      <h1 id="privacy-title">Privacy policy</h1>
+      <p class="fine">Effective November 10, 2026</p>
+      <p class="callout-p">The short version: we collect as little as we can. No analytics, no ads, no tracking
+        cookies, and we never sell or share your personal information.</p>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li><b>Deal alerts.</b> Your email address, the airports you picked and your price limits, so we can email you
+          matching fares.</li>
+        <li><b>Contact form.</b> Your name if you give it, your email and your message. It's delivered to us by email
+          and isn't stored on the site.</li>
+        <li><b>Owner accounts.</b> Only the site's owners can sign in. Their sign-in uses one cookie, and the traveler
+          details they save for booking (names, dates of birth, contact details, passport details) are stored
+          encrypted and used only to book their flights.</li>
+        <li><b>Abuse protection.</b> To limit sign-ups, sign-ins, searches and messages per visitor, we keep a
+          scrambled (hashed) version of your IP address, never the address itself. These records are deleted after
+          7 days.</li>
+      </ul>
+      <p>Route searches you run on the site are saved without anything that identifies you, and help us learn each
+        route's usual price.</p>
+
+      <h2>What we don't do</h2>
+      <ul>
+        <li>No analytics or tracking scripts, and no advertising.</li>
+        <li>No selling or sharing of personal information, as "sell" and "share" are defined by California law
+          (CCPA/CPRA). There's nothing to opt out of.</li>
+        <li>No marketing email. You only get the alerts you asked for.</li>
+      </ul>
+
+      <h2>Cookies</h2>
+      <p>The site sets one cookie, <code>fr_session</code>, and only when an owner signs in. It keeps them signed
+        in for up to 30 days. Visitors who don't sign in get no cookies, which is why there's no cookie banner.</p>
+
+      <h2>Services that handle data for us</h2>
+      <ul>
+        <li><b>Cloudflare</b> hosts the site and its database. Like any web host, it sees visitors' IP addresses to
+          deliver pages.</li>
+        <li><b>Resend</b> sends our emails.</li>
+        <li><b>Duffel</b> and the airline receive traveler details when an owner books a flight.</li>
+        <li><b>SerpApi</b> and <b>Ignav</b> answer our fare searches. They never receive any of your personal
+          information.</li>
+      </ul>
+      <p>Links to Google Flights and airline sites are covered by those companies' own privacy policies.</p>
+
+      <h2>How long we keep it</h2>
+      <p>Alert sign-ups stay until you unsubscribe. After that we keep your address marked "unsubscribed" so we
+        never email you again. Ask us and we'll delete it completely. Owners' traveler details stay until they
+        delete them on their Account page.</p>
+
+      <h2>Your choices and rights</h2>
+      <p>You can ask to see, correct or delete the information we hold about you, wherever you live. That includes
+        rights under California, Washington and EU/UK law. <a href="#contact">Contact us</a> and we'll respond
+        within 30 days. You can stop alerts any time with the link in every email.</p>
+
+      <h2>Children</h2>
+      <p>The site isn't meant for children under 13, and we don't knowingly collect their information.</p>
+
+      <h2>Changes</h2>
+      <p>If we change this policy, we'll update the date at the top. If a change affects how we use your email,
+        we'll tell subscribers first.</p>
+    </article>
+  </section>
+
+  <!-- ===================== Terms ===================== -->
+  <section id="view-terms" class="view page" aria-labelledby="terms-title" hidden>
+    <article class="prose">
+      <h1 id="terms-title">Terms of use</h1>
+      <p class="fine">Effective November 10, 2026</p>
+      <p>By using Fare Radar you agree to these terms. They're written to be read, so please do.</p>
+
+      <h2>What the site is</h2>
+      <p>Fare Radar shows airfares we found from third-party sources and emails alerts to people who ask for them.
+        We're not an airline, a travel agency or a ticket seller. Fares shown here are information, not offers.</p>
+
+      <h2>Prices can be wrong or change</h2>
+      <p>Fares come from other services and change constantly. A fare may be gone, higher, or have different rules by
+        the time you see it. Always check the price, dates, baggage rules and fare conditions with the airline or
+        booking site before you pay. We aren't responsible for differences.</p>
+
+      <h2>Booking</h2>
+      <p>You book with the airline or the site you're sent to, under their terms. Booking on Fare Radar itself is
+        limited to the site's owners. Those bookings go through Duffel and the airline. Changes, cancellations and
+        refunds follow the airline's fare rules.</p>
+
+      <h2>Alerts</h2>
+      <p>Alerts are free and best effort. We may miss a deal, send one late, or stop the service at any time. You can
+        unsubscribe with one tap from any alert.</p>
+
+      <h2>Fair use</h2>
+      <p>Please don't scrape the site, get around its search limits, try to break in, or use it to send spam. We may
+        block anyone who does.</p>
+
+      <h2>No commissions</h2>
+      <p>We don't run ads or use affiliate links, and we don't earn money when you book.</p>
+
+      <h2>No warranty, limited liability</h2>
+      <p>The site is provided "as is", without warranties of any kind. To the extent the law allows, we aren't liable
+        for any loss from using it or relying on its fares, including missed deals, price changes, travel
+        disruptions or bookings made elsewhere.</p>
+
+      <h2>Changes and law</h2>
+      <p>We may update these terms and will change the date above when we do. Washington State law governs them.
+        Questions? <a href="#contact">Contact us</a>.</p>
+    </article>
+  </section>
+
+  <!-- ===================== Accessibility ===================== -->
+  <section id="view-accessibility" class="view page" aria-labelledby="a11y-title" hidden>
+    <article class="prose">
+      <h1 id="a11y-title">Accessibility</h1>
+      <p class="lead-p">We want everyone to be able to find and use a cheap fare here, including people who use screen
+        readers, keyboards, zoom or other assistive technology.</p>
+      <h2>What we aim for</h2>
+      <p>We aim for the Web Content Accessibility Guidelines (WCAG) 2.2, level AA.</p>
+      <ul>
+        <li>Every control works with a keyboard and shows a visible focus ring.</li>
+        <li>Text keeps strong contrast over the background photo, which is decorative only.</li>
+        <li>Forms have labels, and errors and results are announced to screen readers.</li>
+        <li>Animation is minimal and turns off when your device asks for reduced motion.</li>
+        <li>The layout works from small phones to large screens and at 200% zoom.</li>
+      </ul>
+      <h2>Known limits</h2>
+      <ul>
+        <li>The month price calendar in "Check a route" is a dense grid. Screen readers read each day as a list
+          item.</li>
+        <li>Fares link to Google Flights and airline sites, which we don't control.</li>
+      </ul>
+      <h2>Tell us about a problem</h2>
+      <p>If something on the site doesn't work for you, <a href="#contact">tell us</a> what you were trying to do and
+        what you use (browser, screen reader, device). We'll reply within a few days and fix what we can.</p>
+      <p class="fine">Last reviewed November 10, 2026.</p>
+    </article>
+  </section>
+
   <template id="traveler-tpl">
     <form class="traveler" novalidate>
       <div class="t-head">
@@ -300,8 +494,38 @@
     </form>
   </template>
 
-  <footer class="foot page">
-    Fares are round trip, per person, economy, in USD. Prices change quickly. Check the fare on the booking page before you pay.
+  <footer class="site-foot">
+    <div class="page foot-grid">
+      <div class="foot-brand">
+        <a class="wordmark" href="#browse"><span>Fare Radar</span></a>
+        <p>Cheap round trips out of Seattle and Portland, found day and night.</p>
+        <a class="btn primary small" href="#signup">Get deal alerts</a>
+      </div>
+      <nav class="foot-col" aria-labelledby="foot-site">
+        <h2 id="foot-site">Fares</h2>
+        <a href="#deals">Today's deals</a>
+        <a href="#signup">Deal alerts</a>
+        <a href="#logic">How deals are picked</a>
+        <a href="#account">Account</a>
+      </nav>
+      <nav class="foot-col" aria-labelledby="foot-about">
+        <h2 id="foot-about">About</h2>
+        <a href="#about">About &amp; FAQ</a>
+        <a href="#contact">Contact</a>
+        <a href="#accessibility">Accessibility</a>
+      </nav>
+      <nav class="foot-col" aria-labelledby="foot-legal">
+        <h2 id="foot-legal">Legal</h2>
+        <a href="#privacy">Privacy policy</a>
+        <a href="#terms">Terms of use</a>
+        <a href="#privacy">Do not sell or share my info</a>
+      </nav>
+    </div>
+    <div class="page foot-base">
+      <p>© <span id="year">2026</span> Fare Radar. Fares are round trip, per person, economy, in USD, and can change
+        before you book.</p>
+      <p>No ads or affiliate links. We don't earn anything when you book.</p>
+    </div>
   </footer>
 
   <template id="row-tpl">

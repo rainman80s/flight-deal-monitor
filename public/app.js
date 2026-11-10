@@ -18,12 +18,12 @@
 
   // ---------------- routing ----------------
   function route() {
-    const tabs = { "#signup": "signup", "#account": "account", "#logic": "logic" };
-    const tab = tabs[location.hash] ?? "browse";
-    $("#view-browse").hidden = tab !== "browse";
-    $("#view-signup").hidden = tab !== "signup";
-    $("#view-account").hidden = tab !== "account";
-    $("#view-logic").hidden = tab !== "logic";
+    const VIEWS = ["browse", "signup", "account", "logic", "about", "contact", "privacy", "terms", "accessibility"];
+    const want = location.hash.slice(1);
+    const tab = VIEWS.includes(want) ? want : "browse";
+    for (const v of VIEWS) $(`#view-${v}`).hidden = v !== tab;
+    const h = tab === "browse" ? "" : $(`#view-${tab} h1`).textContent;
+    document.title = !h || h.includes("Fare Radar") ? h || "Fare Radar" : `${h} · Fare Radar`;
     if (tab === "account" && typeof renderAccount === "function") renderAccount();
     if (tab === "logic" && typeof renderLogic === "function") renderLogic();
     $(".segmented").dataset.active = tab;
@@ -929,7 +929,42 @@
     });
   }
 
+  // ---------------- contact ----------------
+  function wireContact() {
+    const form = $("#contact-form");
+    const msg = $("#contact-msg");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      const email = form.elements.email;
+      const text = form.elements.message;
+      email.setAttribute("aria-invalid", String(!email.checkValidity() || !data.email));
+      text.setAttribute("aria-invalid", String(String(data.message).trim().length < 5));
+      if (email.getAttribute("aria-invalid") === "true") { msg.className = "t-msg err"; msg.textContent = "Add your email so we can reply."; email.focus(); return; }
+      if (text.getAttribute("aria-invalid") === "true") { msg.className = "t-msg err"; msg.textContent = "Write a message first."; text.focus(); return; }
+      const btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      msg.className = "t-msg";
+      msg.textContent = "Sending…";
+      try {
+        const r = await fetch("/api/contact", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+        });
+        const out = await r.json().catch(() => ({}));
+        if (!r.ok || !out.ok) throw new Error(out.error || "Couldn't send that. Try again in a bit.");
+        form.reset();
+        msg.className = "t-msg ok";
+        msg.textContent = "Sent. We'll reply to your email.";
+      } catch (err) {
+        msg.className = "t-msg err";
+        msg.textContent = err.message;
+      } finally { btn.disabled = false; }
+    });
+  }
+
   // ---------------- boot ----------------
+  $("#year").textContent = new Date().getFullYear();
+  wireContact();
   wireRadio($('[data-filter="origin"]'), (v) => { state.origin = v; loadDeals(); });
   wireRadio($('[data-filter="sort"]'), (v) => { state.sort = v; loadDeals(); });
   wireSignup();

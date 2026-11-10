@@ -68,6 +68,8 @@ export interface Config {
   maxAlertsPerCycle: number;
   channels: Channel[];
   emailFrom: string;
+  /** Postal address printed in email footers (CAN-SPAM). Empty leaves it out. */
+  mailingAddress: string;
   contacts: Contact[];
   bookingMode: "responder" | "both";
   maxPriceIncreasePercent: number;
@@ -120,6 +122,7 @@ export function buildConfig(env: Env, r: RawConfig = raw): Config {
     maxAlertsPerCycle: r.alerts.max_alerts_per_cycle,
     channels: r.alerts.channels as Channel[],
     emailFrom: r.alerts.email_from,
+    mailingAddress: String((r.alerts as { mailing_address?: string }).mailing_address ?? "").trim(),
     contacts: r.alerts.contacts.map((name) => ({
       name,
       phone: String(env[`CONTACT_${name}_PHONE`] ?? ""),
