@@ -100,7 +100,7 @@
     "channels": [
       "email"
     ],
-    "email_from": "Fare Radar <onboarding@resend.dev>",
+    "email_from": "Fare Radar <deals@fareradar.cc>",
     "mailing_address": "",
     "contacts": [
       "RAN",
