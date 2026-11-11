@@ -28,14 +28,30 @@
   <!-- sign in (owners only) -->
   <dialog id="signin-dlg" class="sheet glass" aria-labelledby="signin-title">
     <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
-    <h2 id="signin-title">Sign in to book</h2>
-    <p class="muted-p">Booking is limited to the people this site is set up for. Enter your email and we'll send a
-      one-time sign-in link.</p>
+    <h2 id="signin-title">Sign in or create an account</h2>
+    <p class="muted-p">Enter your email and we'll send you a link. No password needed. New here? The link creates
+      your account.</p>
     <form id="signin-form" novalidate>
       <label class="field-label" for="signin-email">Email</label>
       <input id="signin-email" type="email" autocomplete="email" inputmode="email" required>
       <button class="btn primary" type="submit">Email me a link</button>
       <p id="signin-msg" class="form-msg" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <!-- delete account -->
+  <dialog id="delete-dlg" class="sheet glass" aria-labelledby="delete-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <h2 id="delete-title">Delete your account?</h2>
+    <p class="muted-p">This permanently deletes your account and your alert settings, and stops all emails. It can't
+      be undone. You can always sign up again later.</p>
+    <form id="delete-form" novalidate>
+      <label class="field-label" for="delete-confirm">Type DELETE to confirm</label>
+      <input id="delete-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <div class="t-actions">
+        <button class="btn danger" type="submit">Delete my account</button>
+        <span class="t-msg" id="delete-msg" role="status" aria-live="polite"></span>
+      </div>
     </form>
   </dialog>
 
@@ -158,6 +174,14 @@
           <span id="n-dest">54</span> cities. When one comes in under your number, you get an email with the
           dates and a link to book it on the airline's site. No digests, no newsletters.</p>
 
+        <div id="signup-member" class="acct-card signup-member" hidden>
+          <p>You're signed in as <b id="signup-member-email"></b>. Your airports, limits and alerts are on your
+            account page.</p>
+          <a class="btn primary" href="#account">Manage my alerts</a>
+        </div>
+        <p class="fine signup-hint" id="signup-hint">Already have an account? <a href="#account">Sign in</a> to
+          manage your alerts.</p>
+
         <form id="signup-form" class="form" novalidate>
           <label class="field-label" for="email">Email</label>
           <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
@@ -243,13 +267,76 @@
     <div class="account">
       <h1 id="account-title">Account</h1>
       <div id="acct-signed-out" hidden>
-        <p class="lead-p">Sign in to set up traveler details and book flights from this site.</p>
-        <button type="button" class="btn primary" id="acct-signin">Sign in</button>
+        <p class="lead-p">Sign in or create a free account to choose your airports and price limits and manage your
+          deal alerts. No password, just a link by email.</p>
+        <button type="button" class="btn primary" id="acct-signin">Sign in or sign up</button>
       </div>
       <div id="acct-signed-in" hidden>
-        <p class="lead-p">Signed in as <b id="acct-name"></b>. The details below are what airlines get when you book,
-          so names must match the ID each person flies with. They're stored encrypted.</p>
-        <div id="acct-list" class="acct-list"></div>
+        <!-- owners: traveler details for booking -->
+        <div id="acct-owner" hidden>
+          <p class="lead-p">Signed in as <b id="acct-name"></b>. The details below are what airlines get when you book,
+            so names must match the ID each person flies with. They're stored encrypted.</p>
+          <div id="acct-list" class="acct-list"></div>
+        </div>
+
+        <!-- members: profile, alerts, data -->
+        <div id="acct-member" hidden>
+          <p class="welcome-note" id="acct-welcome" hidden>Welcome to Fare Radar. Your account is ready. Set your
+            airports and limits below and turn on deal alerts.</p>
+          <p class="lead-p">Signed in as <b id="acct-email"></b>.</p>
+
+          <form class="acct-card" id="acct-profile" novalidate>
+            <h2>Profile</h2>
+            <div class="t-grid">
+              <label class="f"><span class="field-label">Email</span>
+                <input id="acct-email-field" type="email" readonly aria-describedby="acct-email-help"></label>
+              <label class="f"><span class="field-label">Name (optional)</span>
+                <input name="name" autocomplete="name" maxlength="60" placeholder="What should we call you?"></label>
+            </div>
+            <p class="fine" id="acct-email-help">Your email is how you sign in. To use a different one, create a new
+              account with it and delete this one.</p>
+            <div class="t-actions"><button class="btn primary" type="submit">Save</button>
+              <span class="t-msg" role="status" aria-live="polite"></span></div>
+          </form>
+
+          <form class="acct-card" id="acct-alerts" novalidate>
+            <div class="card-head">
+              <h2>Deal alerts</h2>
+              <label class="switch"><input type="checkbox" name="on" role="switch"><span aria-hidden="true"></span>
+                <b class="switch-label">Off</b></label>
+            </div>
+            <p class="muted-p">One email when a round trip beats your limit. Nothing else.</p>
+            <fieldset class="field-set">
+              <legend class="field-label">Flying out of</legend>
+              <div class="seg wide" id="acct-home" role="group"></div>
+            </fieldset>
+            <div class="limits">
+              <label class="range">
+                <span class="field-label">US trips under <output id="acct-dom-out" for="acct-dom">$200</output></span>
+                <input id="acct-dom" type="range" min="20" max="200" step="5" value="200">
+              </label>
+              <label class="range">
+                <span class="field-label">Trips abroad under <output id="acct-intl-out" for="acct-intl">$500</output></span>
+                <input id="acct-intl" type="range" min="50" max="500" step="10" value="500">
+              </label>
+            </div>
+            <p class="fine" id="acct-alert-status"></p>
+            <div class="t-actions"><button class="btn primary" type="submit">Save alerts</button>
+              <span class="t-msg" role="status" aria-live="polite"></span></div>
+          </form>
+
+          <section class="acct-card" aria-labelledby="acct-data-title">
+            <h2 id="acct-data-title">Your data</h2>
+            <p class="muted-p">See our <a href="#privacy">privacy policy</a> for what we keep and why.</p>
+            <div class="data-actions">
+              <a class="btn glass-btn" href="/api/account/export" download>Download my data</a>
+              <button type="button" class="btn glass-btn" id="acct-signout-all">Sign out of all devices</button>
+              <button type="button" class="btn danger" id="acct-delete">Delete my account</button>
+            </div>
+            <p class="t-msg" id="acct-data-msg" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+
         <button type="button" class="btn glass-btn" id="acct-signout">Sign out</button>
       </div>
     </div>
@@ -280,7 +367,11 @@
           Flights; every deal links there.</p></details>
       <details><summary>How do deal alerts work?</summary>
         <p><a href="#signup">Sign up</a> with your email, pick your airports and the most you'd pay. You confirm once,
-          then get an email only when a fare beats your limit. Every email has a one-tap unsubscribe link.</p></details>
+          then get an email only when a fare beats your limit. Confirming also gives you a free account, where you
+          can change your settings, pause alerts, download your data or delete everything. Every email has a
+          one-tap unsubscribe link.</p></details>
+      <details><summary>Do I need a password?</summary>
+        <p>No. To sign in, enter your email and tap the link we send. Each link works once, for 20 minutes.</p></details>
       <details><summary>Which airports do you cover?</summary>
         <p>Departures from Seattle-Tacoma (SEA) and Portland (PDX) for now, to about 50 cities in the US and abroad.
           Prices are round trip, per person, economy, in US dollars.</p></details>
@@ -328,9 +419,11 @@
           matching fares.</li>
         <li><b>Contact form.</b> Your name if you give it, your email and your message. It's delivered to us by email
           and isn't stored on the site.</li>
-        <li><b>Owner accounts.</b> Only the site's owners can sign in. Their sign-in uses one cookie, and the traveler
-          details they save for booking (names, dates of birth, contact details, passport details) are stored
-          encrypted and used only to book their flights.</li>
+        <li><b>Accounts.</b> Your email address, the name you give (if any), and when you created the account and
+          last signed in. You can download everything or delete your account any time from the Account page.</li>
+        <li><b>Owners' booking details.</b> Only the site's owners can book. The traveler details they save for
+          that (names, dates of birth, contact details, passport details) are stored encrypted and used only to
+          book their flights.</li>
         <li><b>Abuse protection.</b> To limit sign-ups, sign-ins, searches and messages per visitor, we keep a
           scrambled (hashed) version of your IP address, never the address itself. These records are deleted after
           7 days.</li>
@@ -347,8 +440,9 @@
       </ul>
 
       <h2>Cookies</h2>
-      <p>The site sets one cookie, <code>fr_session</code>, and only when an owner signs in. It keeps them signed
-        in for up to 30 days. Visitors who don't sign in get no cookies, which is why there's no cookie banner.</p>
+      <p>The site sets one cookie, <code>fr_session</code>, and only when you sign in. It keeps you signed in for
+        up to 30 days and is used for nothing else. Visitors who don't sign in get no cookies, which is why there's
+        no cookie banner.</p>
 
       <h2>Services that handle data for us</h2>
       <ul>
@@ -362,13 +456,15 @@
       <p>Links to Google Flights and airline sites are covered by those companies' own privacy policies.</p>
 
       <h2>How long we keep it</h2>
-      <p>Alert sign-ups stay until you unsubscribe. After that we keep your address marked "unsubscribed" so we
-        never email you again. Ask us and we'll delete it completely. Owners' traveler details stay until they
-        delete them on their Account page.</p>
+      <p>Your account and alert settings stay until you delete them on the Account page, which removes them right
+        away. If you only unsubscribe from alerts, we keep your address marked "unsubscribed" so we never email you
+        again; delete your account or ask us to remove it completely. Sign-in links are kept only until they
+        expire. Owners' traveler details stay until they delete them.</p>
 
       <h2>Your choices and rights</h2>
-      <p>You can ask to see, correct or delete the information we hold about you, wherever you live. That includes
-        rights under California, Washington and EU/UK law. <a href="#contact">Contact us</a> and we'll respond
+      <p>You can see, download, correct or delete the information we hold about you, wherever you live. That
+        includes rights under California, Washington and EU/UK law. Most of it you can do yourself on the
+        <a href="#account">Account page</a>. For anything else, <a href="#contact">contact us</a> and we'll respond
         within 30 days. You can stop alerts any time with the link in every email.</p>
 
       <h2>Children</h2>

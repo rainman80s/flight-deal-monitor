@@ -20,7 +20,8 @@ import { IgnavProvider } from "./ignav";
 import { city, destCity, googleFlightsUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
-import { currentUser, sameOrigin } from "./auth";
+import { AccountStore } from "./accounts";
+import { currentSession, currentUser, memberSessionCookie, sameOrigin } from "./auth";
 import { PriceHistory } from "./baselines";
 import { defaultCategories, describe, loadSaved, resetCategories, saveCategories, toRaw, validateCat } from "./settings";
 import { confirmationEmail, EMAIL_RE, SubscriberStore } from "./subscribers";
@@ -142,6 +143,13 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     if (dom === null || intl === null) {
       return json({ ok: false, error: `Limits must be up to $${cfg.domesticMaxPrice} domestic `
         + `and $${cfg.internationalMaxPrice} international.` }, 400);
+    }
+
+    // Signed in with this same email: it's already verified, so save straight to the account.
+    const session = await currentSession(cfg, req);
+    if (session?.kind === "member" && session.user.email === email) {
+      await subs.saveVerified(email, origins, dom, intl, true);
+      return json({ ok: true, status: "updated" });
     }
 
     const ip = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
@@ -289,10 +297,16 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
           + `<form method=post>${hidden}<button class=skip>Unsubscribe</button></form>`);
     }
     if (purpose === "confirm") {
-      if (s.status !== "unsubscribed") await subs.setStatus(s.id, "active");
-      return page("You're in", s.status === "unsubscribed"
-        ? "<h2>You're unsubscribed.</h2><p>Sign up again on the site to restart alerts.</p>"
-        : "<h2>You're in ✈︎</h2><p>We'll email you when a fare beats your limits.</p>");
+      if (s.status === "unsubscribed") {
+        return page("Unsubscribed", "<h2>You're unsubscribed.</h2><p>Sign up again on the site to restart alerts.</p>");
+      }
+      await subs.setStatus(s.id, "active");
+      // Tapping the link proved they own the email, so this is also their account. Sign them in.
+      const { user } = await new AccountStore(cfg.env.DB).signIn(s.email);
+      return page("You're in", "<h2>You're in ✈︎</h2><p>We'll email you when a fare beats your limits.</p>"
+        + "<p>You also have a Fare Radar account now, so you can change your airports and limits any time.</p>"
+        + `<form action="/#account" method="get"><button class=primary>Go to my account</button></form>`,
+        200, { "Set-Cookie": await memberSessionCookie(cfg, user) });
     }
     await subs.setStatus(s.id, "unsubscribed");
     return page("Unsubscribed", "<h2>Unsubscribed.</h2><p>You won't get any more deal emails.</p>");

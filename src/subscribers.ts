@@ -50,6 +50,23 @@ export class SubscriberStore {
     return (await this.byEmail(e))!;
   }
 
+  /**
+   * Saves alert settings for an email we've already verified (a signed-in account), so no
+   * confirmation email is needed: alerts are on or off immediately.
+   */
+  async saveVerified(email: string, origins: string[], domMax: number, intlMax: number, on: boolean): Promise<Subscriber> {
+    const e = email.toLowerCase();
+    const status = on ? "active" : "unsubscribed";
+    await this.db.prepare(
+      `INSERT INTO subscribers(email,origins,domestic_max,international_max,status,created_at,confirmed_at)
+       VALUES(?,?,?,?,?,?,?)
+       ON CONFLICT(email) DO UPDATE SET origins=excluded.origins, domestic_max=excluded.domestic_max,
+         international_max=excluded.international_max, status=excluded.status,
+         confirmed_at=COALESCE(subscribers.confirmed_at, excluded.confirmed_at)`,
+    ).bind(e, JSON.stringify(origins), domMax, intlMax, status, nowIso(), on ? nowIso() : null).run();
+    return (await this.byEmail(e))!;
+  }
+
   async setStatus(id: number, status: Subscriber["status"]) {
     const confirmed = status === "active" ? nowIso() : null;
     await this.db.prepare("UPDATE subscribers SET status=?, confirmed_at=COALESCE(?, confirmed_at) WHERE id=?")

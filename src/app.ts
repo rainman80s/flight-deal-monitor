@@ -29,6 +29,7 @@ import { frameFor } from "./email";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
 import { ignavBudget, makeExplore, serpapiBudget } from "./providers";
+import { accountRoute } from "./account";
 import { ownerRoute } from "./owner";
 import { siteRoute } from "./site";
 import { staticFile } from "./static";
@@ -67,7 +68,7 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (path.startsWith("/api/") || path.startsWith("/u/")) {
-    const res = (await ownerRoute(req, url, deps)) ?? (await siteRoute(req, url, deps));
+    const res = (await accountRoute(req, url, deps)) ?? (await ownerRoute(req, url, deps)) ?? (await siteRoute(req, url, deps));
     if (res) return res;
   }
 

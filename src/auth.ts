@@ -1,5 +1,6 @@
 /**
- * Owner sign-in for the website, so only the configured contacts can book.
+ * Sign-in for the website. Owners (configured contacts) can book and edit the logic;
+ * members (anyone with a verified email) manage their own account and alerts.
  *
  *   POST /api/login {email}   -> if it's a contact's email, send a one-time sign-in link
  *                                (always the same reply, so it doesn't reveal who's a contact)
@@ -11,6 +12,7 @@
  * Tokens are HMAC-SHA256 with LINK_SECRET. Sessions name a contact, not an email, so
  * removing someone from the contacts list signs them out.
  */
+import { AccountStore, type User } from "./accounts";
 import { type Config, type Contact, secret } from "./config";
 
 const COOKIE = "fr_session";
@@ -67,16 +69,69 @@ export async function sessionCookie(cfg: Config, c: Contact, now = Date.now()) {
 
 export const clearCookie = () => `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 
-/** The signed-in contact for this request, if any. */
-export async function currentUser(cfg: Config, req: Request, now = Date.now()): Promise<Contact | null> {
+/** The verified subject of this request's session cookie (a contact name, or "u<id>v<version>"). */
+async function sessionSubject(cfg: Config, req: Request, now: number): Promise<string | null> {
   const key = linkSecret(cfg);
   if (!key) return null;
   const raw = (req.headers.get("Cookie") ?? "").split(/;\s*/).find((p) => p.startsWith(`${COOKIE}=`));
   if (!raw) return null;
   const [name, exp, sig] = raw.slice(COOKIE.length + 1).split(".");
   if (!name || !exp || !sig || !/^\d+$/.test(exp) || Number(exp) * 1000 < now) return null;
-  if (!safeEqual(await hmac(key, `session|${name}|${exp}`), sig)) return null;
-  return cfg.contacts.find((c) => c.name === name) ?? null;
+  return safeEqual(await hmac(key, `session|${name}|${exp}`), sig) ? name : null;
+}
+
+/** The signed-in owner (configured contact) for this request, if any. Members get null. */
+export async function currentUser(cfg: Config, req: Request, now = Date.now()): Promise<Contact | null> {
+  const name = await sessionSubject(cfg, req, now);
+  return name ? cfg.contacts.find((c) => c.name === name) ?? null : null;
+}
+
+// ---------------- member accounts ----------------
+
+export type Session = { kind: "owner"; contact: Contact } | { kind: "member"; user: User };
+
+/** Whoever is signed in: an owner, a member, or nobody. */
+export async function currentSession(cfg: Config, req: Request, now = Date.now()): Promise<Session | null> {
+  const name = await sessionSubject(cfg, req, now);
+  if (!name) return null;
+  const m = /^u(\d+)v(\d+)$/.exec(name);
+  if (m) {
+    const user = await new AccountStore(cfg.env.DB).byId(Number(m[1]));
+    // A deleted account, or one signed out everywhere since, doesn't count.
+    return user && user.session_version === Number(m[2]) ? { kind: "member", user } : null;
+  }
+  const contact = cfg.contacts.find((c) => c.name === name);
+  return contact ? { kind: "owner", contact } : null;
+}
+
+/** One-time sign-in link for any email; the account is created when it's used. */
+export async function memberLoginLink(cfg: Config, email: string, now = Date.now()) {
+  const e = email.trim().toLowerCase();
+  const exp = Math.floor(now / 1000) + LINK_MINUTES * 60;
+  const t = await hmac(secret(cfg, "LINK_SECRET"), `mlogin|${e}|${exp}`);
+  const base = secret(cfg, "PUBLIC_BASE_URL").replace(/\/$/, "");
+  return `${base}/u/login?m=${encodeURIComponent(e)}&x=${exp}&t=${t}`;
+}
+
+export async function verifyMemberLink(cfg: Config, email: string, exp: string, t: string, now = Date.now()) {
+  const key = linkSecret(cfg);
+  if (!key || !email || !/^\d+$/.test(exp) || Number(exp) * 1000 < now) return false;
+  return safeEqual(await hmac(key, `mlogin|${email.trim().toLowerCase()}|${exp}`), t);
+}
+
+/** Marks a sign-in link as used. False if it already was, so each link works once. */
+export async function claimLink(db: D1Database, sig: string, exp: string, now = Date.now()): Promise<boolean> {
+  await db.prepare("DELETE FROM used_links WHERE expires_at < ?").bind(Math.floor(now / 1000)).run();
+  const r = await db.prepare("INSERT INTO used_links(sig, expires_at) VALUES(?, ?) ON CONFLICT(sig) DO NOTHING")
+    .bind(sig, Number(exp)).run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
+export async function memberSessionCookie(cfg: Config, u: User, now = Date.now()) {
+  const subject = `u${u.id}v${u.session_version}`;
+  const exp = Math.floor(now / 1000) + SESSION_DAYS * 86400;
+  const v = `${subject}.${exp}.${await hmac(secret(cfg, "LINK_SECRET"), `session|${subject}|${exp}`)}`;
+  return `${COOKIE}=${v}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
 }
 
 /**

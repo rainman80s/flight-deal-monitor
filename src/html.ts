@@ -25,12 +25,12 @@ const PAGE_CSS = `@font-face{font-family:"Instrument Serif";font-weight:400;font
   + `.muted{color:var(--fg3);font-size:14px}a{color:var(--accent)}`
   + `:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
 
-export function page(title: string, body: string, status = 200): Response {
+export function page(title: string, body: string, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">`
     + `<meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)} · Fare Radar</title>`
     + `<style>${PAGE_CSS}</style></head><body><main class="card">`
     + `<a class="brand" href="/"><i aria-hidden="true">✈︎</i>Fare Radar</a>${body}`
     + `<p class="muted" style="margin:22px 0 0"><a href="/">Back to the deals</a> · <a href="/#privacy">Privacy</a></p>`
     + `</main></body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers } });
 }

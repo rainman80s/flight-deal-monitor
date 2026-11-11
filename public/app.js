@@ -19,7 +19,8 @@
   // ---------------- routing ----------------
   function route() {
     const VIEWS = ["browse", "signup", "account", "logic", "about", "contact", "privacy", "terms", "accessibility"];
-    const want = location.hash.slice(1);
+    const [want, query] = location.hash.slice(1).split("?");
+    state.welcome = query === "welcome";
     const tab = VIEWS.includes(want) ? want : "browse";
     for (const v of VIEWS) $(`#view-${v}`).hidden = v !== tab;
     const h = tab === "browse" ? "" : $(`#view-${tab} h1`).textContent;
@@ -376,7 +377,7 @@
 
   // ---------------- owner sign-in ----------------
   state.me = { signed_in: false };
-  const canBook = () => !!state.me.signed_in;
+  const canBook = () => state.me.role === "owner";
   const title = (s) => s.charAt(0) + s.slice(1).toLowerCase();
 
   async function loadMe() {
@@ -391,7 +392,13 @@
     } else {
       btn.textContent = "Sign in";
     }
-    if (location.hash === "#account") renderAccount();
+    // Members manage alerts on their account page instead of the public sign-up form.
+    const member = state.me.role === "member";
+    $("#signup-member").hidden = !member;
+    $("#signup-form").hidden = member;
+    $("#signup-hint").hidden = !!state.me.signed_in;
+    if (member) $("#signup-member-email").textContent = state.me.email;
+    if (location.hash.startsWith("#account")) renderAccount();
   }
 
   function buyButton(c) {
@@ -435,7 +442,7 @@
           headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value.trim() }) });
         const data = await r.json().catch(() => ({}));
         msg.textContent = data.ok
-          ? "If that email can book on this site, a sign-in link is on its way. It works for 20 minutes."
+          ? `Check your inbox: we sent a link to ${email.value.trim()}. It works once, for 20 minutes.`
           : data.error || "That didn't go through. Try again.";
         msg.classList.add(data.ok ? "ok" : "err");
       } catch {
@@ -641,6 +648,10 @@
     $("#acct-signed-out").hidden = signedIn;
     $("#acct-signed-in").hidden = !signedIn;
     if (!signedIn) return;
+    const member = state.me.role === "member";
+    $("#acct-owner").hidden = member;
+    $("#acct-member").hidden = !member;
+    if (member) return renderMember();
     $("#acct-name").textContent = title(state.me.name);
     let data;
     try { data = await (await fetch("/api/profiles", { credentials: "same-origin" })).json(); } catch { data = null; }
@@ -931,6 +942,121 @@
     });
   }
 
+  // ---------------- member account ----------------
+  const flash = (el, text, kind) => { el.className = `t-msg${kind ? ` ${kind}` : ""}`; el.textContent = text; };
+
+  async function api(path, method = "GET", data) {
+    const r = await fetch(path, { method, credentials: "same-origin",
+      headers: data ? { "Content-Type": "application/json" } : {}, body: data ? JSON.stringify(data) : undefined });
+    const out = await r.json().catch(() => ({}));
+    if (r.status === 401) { state.me = { signed_in: false }; await loadMe(); }
+    if (!r.ok || out.ok === false) throw new Error(out.error || "That didn't go through. Try again.");
+    return out;
+  }
+
+  function setAlertSwitch(on) {
+    const box = $("#acct-alerts").elements.on;
+    box.checked = on;
+    $("#acct-alerts .switch-label").textContent = on ? "On" : "Off";
+    $("#acct-alerts").classList.toggle("is-off", !on);
+  }
+
+  function fillMember(a) {
+    $("#acct-email").textContent = a.email;
+    $("#acct-email-field").value = a.email;
+    $("#acct-profile").elements.name.value = a.name || "";
+    const al = a.alerts;
+    setAlertSwitch(al.on);
+    const origins = state.meta?.origins || [{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }];
+    $("#acct-home").replaceChildren(...origins.map((o) =>
+      segButton(o.code, `${o.city} (${o.code})`, al.origins.includes(o.code), "toggle")));
+    for (const [id, v, max] of [["#acct-dom", al.domestic_max, a.limits.domestic_max],
+      ["#acct-intl", al.international_max, a.limits.international_max]]) {
+      const el = $(id);
+      el.max = String(max);
+      el.value = String(v);
+      paintRange(el);
+      $(`${id}-out`).textContent = money(v);
+    }
+    $("#acct-alert-status").textContent = !al.on ? "Alerts are off. You won't get any deal emails."
+      : al.last_emailed_at ? `On. Last alert sent ${ago(al.last_emailed_at)}.`
+      : "On. You'll get an email the next time a fare beats your limit.";
+  }
+
+  async function renderMember() {
+    $("#acct-welcome").hidden = !state.welcome;
+    try { fillMember((await api("/api/account")).account); } catch (e) { flash($("#acct-data-msg"), e.message, "err"); }
+  }
+
+  function wireMember() {
+    $("#acct-profile").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", e.target);
+      try {
+        const out = await api("/api/account", "PUT", { name: e.target.elements.name.value });
+        fillMember(out.account);
+        state.me.name = out.account.name || out.account.email.split("@")[0];
+        loadMe();
+        flash(msg, "Saved.", "ok");
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+
+    const alerts = $("#acct-alerts");
+    alerts.elements.on.addEventListener("change", (e) => setAlertSwitch(e.target.checked));
+    $("#acct-home").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const on = b.getAttribute("aria-pressed") !== "true";
+      if (!on && !$$("#acct-home button").some((x) => x !== b && x.getAttribute("aria-pressed") === "true")) return;
+      b.setAttribute("aria-pressed", String(on));
+    });
+    for (const id of ["#acct-dom", "#acct-intl"]) {
+      const el = $(id);
+      el.addEventListener("input", () => { $(`${id}-out`).textContent = money(el.value); paintRange(el); });
+    }
+    alerts.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", alerts);
+      const body = { alerts: {
+        on: alerts.elements.on.checked,
+        origins: $$("#acct-home button[aria-pressed=true]").map((b) => b.dataset.value),
+        domestic_max: Number($("#acct-dom").value), international_max: Number($("#acct-intl").value),
+      } };
+      try {
+        fillMember((await api("/api/account", "PUT", body)).account);
+        flash(msg, body.alerts.on ? "Saved. Alerts are on." : "Saved. Alerts are off.", "ok");
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+
+    $("#acct-signout-all").addEventListener("click", async () => {
+      if (!confirm("Sign out of Fare Radar on every device, including this one?")) return;
+      try {
+        await api("/api/account/signout-all", "POST");
+        location.hash = "#browse";
+        location.reload();
+      } catch (err) { flash($("#acct-data-msg"), err.message, "err"); }
+    });
+
+    const dlg = $("#delete-dlg");
+    $("#acct-delete").addEventListener("click", () => {
+      $("#delete-confirm").value = "";
+      flash($("#delete-msg"), "");
+      dlg.showModal();
+    });
+    $("#delete-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const v = $("#delete-confirm").value.trim().toUpperCase();
+      if (v !== "DELETE") { flash($("#delete-msg"), "Type DELETE to confirm.", "err"); return; }
+      try {
+        await api("/api/account/delete", "POST", { confirm: v });
+        dlg.close();
+        state.me = { signed_in: false };
+        location.hash = "#browse";
+        location.reload();
+      } catch (err) { flash($("#delete-msg"), err.message, "err"); }
+    });
+  }
+
   // ---------------- contact ----------------
   function wireContact() {
     const form = $("#contact-form");
@@ -967,6 +1093,7 @@
   // ---------------- boot ----------------
   $("#year").textContent = new Date().getFullYear();
   wireContact();
+  wireMember();
   wireRadio($('[data-filter="origin"]'), (v) => { state.origin = v; loadDeals(); });
   wireRadio($('[data-filter="sort"]'), (v) => { state.sort = v; loadDeals(); });
   wireSignup();

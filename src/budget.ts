@@ -73,4 +73,5 @@ export async function pruneVisitorRecords(db: D1Database, now = new Date(), days
   await db.prepare("DELETE FROM state WHERE (key LIKE 'rl\\_%' ESCAPE '\\' OR key LIKE 'visitor\\_search\\_%' ESCAPE '\\' "
     + "OR key LIKE 'login\\_%' ESCAPE '\\') AND (key LIKE '%\\_total' ESCAPE '\\' OR substr(key, -10) < ?)").bind(cutoff).run();
   await db.prepare("DELETE FROM signup_attempts WHERE at < ?").bind(new Date(now.getTime() - days * 86400000).toISOString()).run();
+  await db.prepare("DELETE FROM used_links WHERE expires_at < ?").bind(Math.floor(now.getTime() / 1000)).run();
 }

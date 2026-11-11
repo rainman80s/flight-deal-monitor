@@ -227,17 +227,19 @@ describe("booking endpoints", () => {
       a = await s.call("/api/login", { email: "ran@example.com" });
       b = await s.call("/api/login", { email: "stranger@example.com" });
     } finally { globalThis.fetch = real; }
+    // Anyone can have an account now, so everyone gets a link, and the reply doesn't
+    // reveal which emails belong to owners.
     expect(a.body).toEqual({ ok: true });
     expect(b.body).toEqual({ ok: true });
-    expect(sent).toEqual(["ran@example.com"]); // only a contact gets a link
+    expect(sent).toEqual(["ran@example.com", "stranger@example.com"]);
   });
 
-  it("login reply is identical even without email set up", async () => {
+  it("login reply is identical for owners and strangers even without email set up", async () => {
     const s = site();
     s.cfg.env.RESEND_API_KEY = undefined;
     const a = await s.call("/api/login", { email: "ran@example.com" });
     const b = await s.call("/api/login", { email: "stranger@example.com" });
-    expect(a.body).toEqual({ ok: true });
-    expect(b.body).toEqual({ ok: true });
+    expect(a.status).toBe(b.status);
+    expect(a.body).toEqual(b.body);
   });
 });

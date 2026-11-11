@@ -1,9 +1,8 @@
 /**
- * Owner-only routes: sign-in, and searching/booking real flights from the site.
+ * Owner-only routes: traveler profiles, and searching/booking real flights from the site.
+ * (Sign-in for everyone lives in account.ts.)
  *
- *   GET  /api/me          who is signed in, and whether booking is set up
- *   POST /api/login       {email}: email a sign-in link to a configured contact
- *   GET  /u/login         sign-in page (button);  POST /u/login signs in (sets cookie)
+ *   GET  /api/profiles, PUT/DELETE /api/profiles/:name   traveler details for booking
  *   POST /api/logout
  *   POST /api/offers      {origin, destination, depart_date, return_date, travelers[]}
  *   POST /api/book        {offer_id, travelers[], expected_total, origin, destination, depart_date, return_date}
@@ -12,15 +11,11 @@
  * /api/book also require a signed-in contact.
  */
 import type { Deps } from "./app";
-import { clearCookie, contactByEmail, currentUser, loginLink, sameOrigin, sessionCookie, verifyLoginLink } from "./auth";
-import { visitorLimit, visitorTag } from "./budget";
+import { clearCookie, currentUser, sameOrigin } from "./auth";
 import type { Config } from "./config";
 import { loadAllTravelers, ProfileStore, publicProfile, validateProfile } from "./profiles";
 import { daysBetween, utcDate } from "./dates";
 import { DuffelProvider, viewOffer } from "./duffel";
-import { escHtml, page } from "./html";
-import { BRAND, button, fine, frameFor, layout, p as para, textFooter } from "./email";
-import { ResendEmailer } from "./notify";
 import { bookOffer } from "./purchase";
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -44,73 +39,20 @@ async function body(req: Request): Promise<Record<string, unknown> | null> {
   try { return await req.json() as Record<string, unknown>; } catch { return null; }
 }
 
+/** What the site needs to know about a signed-in owner's booking setup (for /api/me). */
+export async function ownerBooking(cfg: Config) {
+  const duffel = duffelFor(cfg);
+  return {
+    enabled: cfg.bookingEnabled && !cfg.dryRun,
+    duffel: !!duffel, test_mode: duffel?.testMode ?? null,
+    travelers: await travelerStatus(cfg),
+    spend_cap: cfg.dailySpendCap, max_price_increase_percent: cfg.maxPriceIncreasePercent,
+  };
+}
+
 export async function ownerRoute(req: Request, url: URL, deps: Deps): Promise<Response | null> {
   const { cfg } = deps;
   const p = url.pathname;
-
-  if (p === "/api/me" && req.method === "GET") {
-    const user = await currentUser(cfg, req);
-    if (!user) return json({ signed_in: false });
-    const duffel = duffelFor(cfg);
-    return json({
-      signed_in: true, name: user.name,
-      booking: {
-        enabled: cfg.bookingEnabled && !cfg.dryRun,
-        duffel: !!duffel, test_mode: duffel?.testMode ?? null,
-        travelers: await travelerStatus(cfg),
-        spend_cap: cfg.dailySpendCap, max_price_increase_percent: cfg.maxPriceIncreasePercent,
-      },
-    });
-  }
-
-  if (p === "/api/login" && req.method === "POST") {
-    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
-    const b = await body(req);
-    const email = String(b?.email ?? "");
-    const tag = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
-    const limiter = visitorLimit(cfg.env.DB, "login", tag, 5);
-    try { await limiter.take(); } catch { return json({ ok: false, error: "Too many attempts. Try again tomorrow." }, 429); }
-    const c = contactByEmail(cfg, email);
-    if (c && typeof cfg.env.RESEND_API_KEY === "string" && cfg.env.RESEND_API_KEY) {
-      try {
-        const link = await loginLink(cfg, c);
-        const f = frameFor(cfg);
-        const reason = `You're getting this because someone asked to sign in to ${BRAND} with ${c.email}.`;
-        await new ResendEmailer(cfg.env.RESEND_API_KEY, String(cfg.env.EMAIL_FROM ?? cfg.emailFrom)).send(c.email, {
-          subject: "Your Fare Radar sign-in link",
-          text: `Sign in to book flights on Fare Radar (link works for 20 minutes):\n${link}\n\n`
-            + `Didn't ask for this? Ignore it; nobody can sign in without this link.\n` + textFooter(f, reason),
-          html: layout(f, {
-            preheader: "Your sign-in link. It works for 20 minutes.",
-            eyebrow: "Sign in",
-            heading: "Welcome back",
-            body: para("Tap below to sign in and book flights. The link works for 20 minutes and only once.")
-              + `<div style="margin:22px 0 4px">${button(link, "Sign in to Fare Radar")}</div>`
-              + fine("Didn't ask for this? Ignore it. Nobody can sign in without this link."),
-            reason,
-          }),
-        });
-      } catch (e) { console.error("login email failed", e); }
-    }
-    // Same answer either way, so the form doesn't reveal which emails can sign in.
-    return json({ ok: true });
-  }
-
-  if (p === "/u/login" && (req.method === "GET" || req.method === "POST")) {
-    const params = req.method === "POST" ? new URLSearchParams(await req.text()) : url.searchParams;
-    const n = params.get("n") ?? "", x = params.get("x") ?? "", t = params.get("t") ?? "";
-    const c = await verifyLoginLink(cfg, n, x, t);
-    if (!c) {
-      return page("Link expired", "<h2>That sign-in link has expired or isn't valid.</h2>"
-        + "<p>Request a new one from the site.</p>", 403);
-    }
-    if (req.method === "GET") {
-      const hidden = ["n", "x", "t"].map((k) => `<input type=hidden name=${k} value="${escHtml(params.get(k) ?? "")}">`).join("");
-      return page("Sign in", `<h2>Sign in to Fare Radar</h2><p>As <b>${escHtml(c.name.toLowerCase())}</b>, on this device.</p>`
-        + `<form method=post>${hidden}<button class=primary>Sign in</button></form>`);
-    }
-    return new Response(null, { status: 303, headers: { Location: "/#browse", "Set-Cookie": await sessionCookie(cfg, c) } });
-  }
 
   // ---- traveler profiles (Account page) ----
   if (p === "/api/profiles" && req.method === "GET") {
