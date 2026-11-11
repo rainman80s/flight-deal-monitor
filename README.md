@@ -1,6 +1,6 @@
 # Flight Deal Monitor (Fare Radar)
 
-Live site: https://flight-deal-monitor.ranenbothel.workers.dev
+Live site: https://fareradar.cc
 
 A Cloudflare Worker that watches round-trip fares from **Seattle (SEA)** and **Portland (PDX)**.
 When a fare beats your rules, it texts and calls Ran and Brock. Either of you can answer

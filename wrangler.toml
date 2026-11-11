@@ -27,7 +27,7 @@ database_id = "9bba564a-0313-43c5-aa94-7f779fced42c"
 migrations_dir = "migrations"
 
 [vars]
-PUBLIC_BASE_URL = "https://flight-deal-monitor.ranenbothel.workers.dev"
+PUBLIC_BASE_URL = "https://fareradar.cc"
 
 [observability]
 enabled = true
