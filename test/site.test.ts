@@ -1,10 +1,10 @@
-/** Website API: browse, sign up, confirm, unsubscribe, subscriber alerts. */
+/** Website API: static files, browse, contact form, email layout. */
 import { describe, expect, it } from "vitest";
 import { handle } from "../src/app";
 import type { Fare } from "../src/models";
 import { runCycle } from "../src/monitor";
-import { subscriberLink, SubscriberStore } from "../src/subscribers";
-import { setup } from "./helpers";
+import { memberDealEmail, unsubscribeLink } from "../src/alerts";
+import { sessionFor, setup } from "./helpers";
 
 const BASE = "https://flights.example.com";
 const NOON = new Date("2026-11-05T20:00:00Z");
@@ -17,11 +17,10 @@ const fare = (dest = "LAX", price = 90, extra: Partial<Fare> = {}): Fare => ({
 
 function site(overrides = {}) {
   const ctx = setup(overrides);
-  const subs = new SubscriberStore(ctx.cfg.env.DB);
   const emails: { to: string; subject: string }[] = [];
   // Capture confirmation emails sent straight to Resend.
   const realFetch = globalThis.fetch;
-  const deps = { ...ctx, subs, fareProvider: () => { throw new Error("unused"); }, background: () => {} };
+  const deps = { ...ctx, fareProvider: () => { throw new Error("unused"); }, background: () => {} };
   const call = async (path: string, init?: RequestInit) => {
     globalThis.fetch = (async (url: string, i: RequestInit) => {
       if (String(url).startsWith("https://api.resend.com")) {
@@ -40,14 +39,14 @@ function site(overrides = {}) {
     } finally { globalThis.fetch = realFetch; }
   };
   const subscribe = (body: Record<string, unknown>, ip = "1.1.1.1") => call("/api/subscribe", {
-    method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip }, body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip, Origin: BASE }, body: JSON.stringify(body),
   });
   const form = (path: string) => {
     const u = new URL(path, BASE);
     return call(u.pathname, { method: "POST", body: u.searchParams,
       headers: { "Content-Type": "application/x-www-form-urlencoded" } });
   };
-  return { ...ctx, subs, emails, call, subscribe, form };
+  return { ...ctx, emails, call, subscribe, form };
 }
 
 describe("static site", () => {
@@ -86,107 +85,6 @@ describe("browse API", () => {
     const m = (await site({ dryRun: true, provider: "mock" }).call("/api/meta")).body;
     expect(m).toMatchObject({ domestic_max: 100, international_max: 300, demo: true, destinations: 54 });
     expect(m.origins).toEqual([{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }]);
-  });
-});
-
-describe("sign up", () => {
-  it("validates input", async () => {
-    const s = site();
-    expect((await s.subscribe({ email: "nope", origins: ["SEA"] })).status).toBe(400);
-    expect((await s.subscribe({ email: "a@b.co", origins: ["JFK"] })).body.error).toMatch(/airport/);
-    expect((await s.subscribe({ email: "a@b.co", origins: ["SEA"], domestic_max: 500 })).status).toBe(400);
-    expect(s.emails).toHaveLength(0);
-  });
-
-  it("honeypot pretends success but stores nothing", async () => {
-    const s = site();
-    const r = await s.subscribe({ email: "bot@spam.co", origins: ["SEA"], website: "http://spam" });
-    expect(r.body.ok).toBe(true);
-    expect(await s.subs.byEmail("bot@spam.co")).toBeNull();
-    expect(s.emails).toHaveLength(0);
-  });
-
-  it("double opt-in: pending until the confirm button is pressed", async () => {
-    const s = site();
-    const r = await s.subscribe({ email: "Friend@Example.com", origins: ["SEA"], domestic_max: 80, international_max: 250 });
-    expect(r.body).toMatchObject({ ok: true, status: "check_email" });
-    expect(s.emails.map((e) => e.to)).toEqual(["friend@example.com"]);
-    const sub = (await s.subs.byEmail("friend@example.com"))!;
-    expect(sub.status).toBe("pending");
-
-    const link = await subscriberLink(s.cfg, sub, "confirm");
-    const view = await s.call(new URL(link).pathname + new URL(link).search);
-    expect(view.body).toContain("<form method=post>");
-    expect((await s.subs.byId(sub.id))!.status).toBe("pending"); // GET doesn't confirm
-    await s.form(link);
-    expect((await s.subs.byId(sub.id))!.status).toBe("active");
-
-    // Signing up again with new limits just updates them.
-    const again = await s.subscribe({ email: "friend@example.com", origins: ["PDX"], domestic_max: 60, international_max: 200 });
-    expect(again.body.status).toBe("updated");
-    expect((await s.subs.byId(sub.id))!).toMatchObject({ status: "active", domestic_max: 60, origins: '["PDX"]' });
-  });
-
-  it("rejects tampered confirm links", async () => {
-    const s = site();
-    await s.subscribe({ email: "x@y.co", origins: ["SEA"] });
-    const sub = (await s.subs.byEmail("x@y.co"))!;
-    const link = await subscriberLink(s.cfg, sub, "confirm");
-    const forged = link.replace(`id=${sub.id}`, `id=${sub.id + 1}`);
-    expect((await s.form(forged)).status).toBe(403);
-    const asUnsub = link.replace("/u/confirm", "/u/unsubscribe"); // confirm token can't unsubscribe
-    expect((await s.form(asUnsub)).status).toBe(403);
-  });
-
-  it("throttles repeated sign-ups from one IP", async () => {
-    const s = site();
-    for (let i = 0; i < 5; i++) expect((await s.subscribe({ email: `p${i}@x.co`, origins: ["SEA"] }, "9.9.9.9")).status).toBe(200);
-    expect((await s.subscribe({ email: "p6@x.co", origins: ["SEA"] }, "9.9.9.9")).status).toBe(429);
-    expect((await s.subscribe({ email: "p7@x.co", origins: ["SEA"] }, "8.8.8.8")).status).toBe(200);
-  });
-});
-
-describe("subscriber alerts", () => {
-  async function active(s: ReturnType<typeof site>, email: string, origins: string[], dom: number, intl: number) {
-    const sub = await s.subs.upsert(email, origins, dom, intl);
-    await s.subs.setStatus(sub.id, "active");
-    return sub;
-  }
-
-  it("emails only active subscribers whose airports and limits match", async () => {
-    const s = site({ dryRun: false });
-    await active(s, "sea-cheap@x.co", ["SEA"], 80, 300);   // limit 80 < 90: no
-    await active(s, "sea@x.co", ["SEA"], 100, 300);        // yes
-    await active(s, "pdx@x.co", ["PDX"], 100, 300);        // wrong airport: no
-    await s.subs.upsert("pending@x.co", ["SEA"], 100, 300); // not confirmed: no
-    const r = await runCycle(s.cfg, s.store, { name: "f", search: async () => [fare("LAX", 90)] }, s.notifier, NOON, s.subs);
-    expect(r.subscribersEmailed).toBe(1);
-    const sent = s.notifier.sent.filter((m) => m.kind === "email").map((m) => m.to);
-    expect(sent.sort()).toEqual(["ran@example.com", "sea@x.co"]);
-    const subEmail = s.notifier.sent.find((m) => m.to === "sea@x.co")!.email!;
-    expect(subEmail.html).toContain("Unsubscribe");
-    expect(subEmail.html).not.toContain(">Buy<"); // subscribers can't buy
-  });
-
-  it("never emails subscribers about fake fares or in dry run", async () => {
-    const s = site({ dryRun: false });
-    await active(s, "sea@x.co", ["SEA"], 100, 300);
-    let r = await runCycle(s.cfg, s.store, { name: "f", search: async () => [fare("LAX", 90, { isFake: true })] },
-      s.notifier, NOON, s.subs);
-    expect(r.subscribersEmailed).toBe(0);
-    const dry = site({ dryRun: true });
-    await active(dry, "sea@x.co", ["SEA"], 100, 300);
-    r = await runCycle(dry.cfg, dry.store, { name: "f", search: async () => [fare("LAX", 90)] }, dry.notifier, NOON, dry.subs);
-    expect(r.subscribersEmailed).toBe(0);
-  });
-
-  it("unsubscribe stops alerts", async () => {
-    const s = site({ dryRun: false });
-    const sub = await active(s, "sea@x.co", ["SEA"], 100, 300);
-    await s.form(await subscriberLink(s.cfg, sub, "unsubscribe"));
-    expect((await s.subs.byId(sub.id))!.status).toBe("unsubscribed");
-    const r = await runCycle(s.cfg, s.store, { name: "f", search: async () => [fare("LAX", 90)] }, s.notifier, NOON, s.subs);
-    expect(r.subscribersEmailed).toBe(0);
   });
 });
 
@@ -252,18 +150,16 @@ describe("footer pages and contact form", () => {
 });
 
 describe("email layout", () => {
-  it("subscriber alerts carry the footer, an unsubscribe link and one-click unsubscribe headers", async () => {
+  it("member alerts carry the footer, an unsubscribe link and one-click unsubscribe headers", async () => {
     const s = site({ dryRun: false });
-    const sub = await s.subs.upsert("fan@x.co", ["SEA"], 100, 300);
-    await s.subs.setStatus(sub.id, "active");
+    const { user } = await sessionFor(s.cfg, { entitled: true, email: "fan@x.co" });
     await s.store.addDeal(fare("LAX", 90));
-    const { subscriberDealEmail } = await import("../src/subscribers");
     const d = (await s.store.recentDeals(1))[0];
-    const m = await subscriberDealEmail(s.cfg, (await s.subs.byId(sub.id))!, d);
+    const m = memberDealEmail(s.cfg, user, d, "domestic", "under $100", await unsubscribeLink(s.cfg, user.id));
     expect(m.headers!["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
-    expect(m.headers!["List-Unsubscribe"]).toMatch(/^<https:\/\/flights\.example\.com\/u\/unsubscribe\?id=\d+&t=/);
-    for (const want of ["Unsubscribe", "#privacy", "#contact", "fan@x.co signed up", `© ${new Date().getUTCFullYear()} Fare Radar`,
-      "/email-banner.jpg", "#f6b443"]) expect(m.html).toContain(want);
+    expect(m.headers!["List-Unsubscribe"]).toMatch(/^<https:\/\/flights\.example\.com\/u\/unsubscribe\?u=\d+&t=/);
+    for (const want of ["Unsubscribe", "#privacy", "#contact", "deal alerts in your Fare Radar account (fan@x.co)",
+      `© ${new Date().getUTCFullYear()} Fare Radar`, "/email-banner.jpg", "#f6b443", "under $100"]) expect(m.html).toContain(want);
     expect(m.text).toContain("Unsubscribe: https://flights.example.com/u/unsubscribe");
   });
 
@@ -275,18 +171,6 @@ describe("email layout", () => {
     expect(layout({ ...frameFor(s.cfg), address: "PO Box 1, Seattle, WA 98101" }, opts)).toContain("PO Box 1, Seattle, WA 98101");
   });
 
-  it("one-click unsubscribe from a mail app works (POST with the token in the URL)", async () => {
-    const s = site();
-    const sub = await s.subs.upsert("click@x.co", ["SEA"], 100, 300);
-    await s.subs.setStatus(sub.id, "active");
-    const link = new URL(await subscriberLink(s.cfg, sub, "unsubscribe"));
-    const r = await s.call(link.pathname + link.search, {
-      method: "POST", body: "List-Unsubscribe=One-Click",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
-    expect(r.status).toBe(200);
-    expect((await s.subs.byId(sub.id))!.status).toBe("unsubscribed");
-  });
 });
 
 describe("visitor records", () => {
@@ -302,13 +186,12 @@ describe("visitor records", () => {
   });
 });
 
-describe("owners on the sign-up form", () => {
-  it("are told they already get alerts, and nothing is stored or emailed", async () => {
+describe("free sign-ups are gone", () => {
+  it("the old endpoint explains alerts are for members, and stores and sends nothing", async () => {
     const s = site();
-    const owner = s.cfg.contacts.find((c) => c.email)!.email;
-    const r = await s.subscribe({ email: owner.toUpperCase(), origins: ["SEA"] });
-    expect(r.body).toEqual({ ok: true, status: "owner" });
+    const r = await s.subscribe({ email: "someone@example.com", origins: ["SEA"] });
+    expect(r.status).toBe(410);
+    expect(r.body.code).toBe("subscription_required");
     expect(s.emails).toHaveLength(0);
-    expect(await s.subs.byEmail?.(owner.toLowerCase())).toBeFalsy();
   });
 });

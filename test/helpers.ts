@@ -6,6 +6,7 @@ import { buildConfig, type Config, type Env, type RawConfig } from "../src/confi
 import { type Categories, setCategories } from "../src/settings";
 import { Store } from "../src/store";
 import { ConsoleNotifier } from "../src/notify";
+import { type Role, UserStore } from "../src/users";
 
 class Stmt {
   constructor(private db: DatabaseSync, private sql: string, private params: unknown[] = []) {}
@@ -46,9 +47,9 @@ export function testEnv(db = fakeD1()): Env {
     PUBLIC_BASE_URL: "https://flights.example.com",
     DUFFEL_ACCESS_TOKEN: "duffel_test_x",
     TRAVELERS_JSON: JSON.stringify(TRAVELERS),
-    ADMIN_TOKEN: "admin_secret",
+    ADMIN_TOKEN: "admin_secret_token_for_tests",
     CONTACT_RAN_EMAIL: "ran@example.com",
-    LINK_SECRET: "link_secret",
+    LINK_SECRET: "link_secret_for_tests_0123456789",
     RESEND_API_KEY: "re_test",
   };
 }
@@ -76,4 +77,27 @@ export function setup(overrides: Partial<Config> = {}) {
   const env = testEnv();
   const cfg = makeCfg(overrides, env);
   return { cfg, store: new Store(env.DB), notifier: new ConsoleNotifier() };
+}
+
+/** A real account plus a live session for it, as the request Cookie header value. */
+export async function sessionFor(cfg: Config, o: { email?: string; role?: Role; contact?: string | null; entitled?: boolean;
+                                                   mustChange?: boolean; verified?: boolean; password?: string } = {}) {
+  const users = UserStore.for(cfg);
+  const user = await users.create({
+    email: o.email ?? `member${Math.random().toString(36).slice(2)}@example.com`,
+    password: o.password ?? "a long test password", role: o.role ?? "member", contact: o.contact ?? null,
+    emailVerified: o.verified ?? true, mustChangePassword: !!o.mustChange,
+  });
+  if (o.entitled) {
+    await users.setSubscription(user.id, { id: "sub_test", status: "active",
+      periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400, cancelAtPeriodEnd: false });
+  }
+  const token = await users.createSession(user.id, "test");
+  return { user: (await users.byId(user.id))!, cookie: `__Host-fr_session=${token}` };
+}
+
+/** Session cookie for an owner (admin linked to a contact). */
+export async function adminCookie(cfg: Config, contact = "RAN") {
+  return (await sessionFor(cfg, { role: "admin", contact,
+    email: contact === "RAN" ? "ran@example.com" : `${contact.toLowerCase()}@example.com` })).cookie;
 }

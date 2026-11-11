@@ -23,7 +23,7 @@ import { planCalendar, planCycle } from "./planner";
 import { cheapestPerRoute, rejectionReason } from "./rules";
 import { type ExploreClient, exploreFares } from "./serpapi";
 import type { Store } from "./store";
-import { notifySubscribers, type SubscriberStore } from "./subscribers";
+import { notifyMembers } from "./alerts";
 
 export interface CycleResult {
   cycle: number; searches: number; errors: number; faresSeen: number; deals: Deal[]; suppressed: number;
@@ -46,15 +46,9 @@ export function inQuietHours(cfg: Config, now: Date): boolean {
 async function alert(cfg: Config, store: Store, notifier: Notifier, d: Deal, call: boolean) {
   const kind = kindOf(cfg, d);
   const why = d.ping_reason ?? `under $${catOf(cfg, d).alert.under}`;
+  // Email alerts go to accounts (each by their own rules) in alerts.ts; texts and calls, when
+  // switched on, still go straight to the configured contacts.
   for (const c of cfg.contacts) {
-    if (cfg.channels.includes("email") && c.email) {
-      try {
-        const msg = dealEmail(d, kind, why, await actionUrl(cfg, d.code, c.name, "buy"),
-          await actionUrl(cfg, d.code, c.name, "skip"), buyMeaning(cfg.dryRun, cfg.bookingEnabled, !!d.is_fake),
-          frameFor(cfg));
-        await notifier.email(c.email, msg);
-      } catch (e) { console.error(`email to ${c.name} failed`, e); }
-    }
     if (cfg.channels.includes("sms") && c.phone) {
       const body = dealText(d, kind, why, cfg.bookingEnabled && !cfg.dryRun);
       try { await notifier.sms(c.phone, body); } catch (e) { console.error(`text to ${c.name} failed`, e); }
@@ -100,7 +94,7 @@ const isEstimate = (f: Fare) => f.provider === "ignav-calendar" || f.provider ==
 interface Candidate { fare: Fare; base: Baseline | null; reason: string | null }
 
 export async function runCycle(cfg: Config, store: Store, provider: FareProvider, notifier: Notifier,
-                               now = new Date(), subs?: SubscriberStore, explore?: ExploreSetup): Promise<CycleResult> {
+                               now = new Date(), alertMembers = false, explore?: ExploreSetup): Promise<CycleResult> {
   const today = localParts(now, cfg.timezone).date;
   const cycle = await store.nextCycle();
   await store.setState("last_cycle_at", now.toISOString());
@@ -190,6 +184,7 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
   candidates.sort((a, b) => Number(!!b.reason) - Number(!!a.reason) || goodness(a) - goodness(b));
   const quiet = inQuietHours(cfg, now);
   let pinged = 0;
+  const saved: Deal[] = [];
   for (const c of candidates) {
     const f = c.fare;
     const ping = !!c.reason && pinged < cfg.maxAlertsPerCycle && await store.shouldAlert(f, cfg.realertDropPercent);
@@ -201,11 +196,17 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     const d = await store.addDeal(f, { typicalLow: c.base?.low, typicalHigh: c.base?.high,
       typicalMedian: c.base?.median, pingReason: ping ? c.reason : null });
     r.shown++;
+    saved.push(d);
     if (!ping) continue;
     await alert(cfg, store, notifier, d, !quiet && pinged < cfg.maxCallsPerCycle);
     pinged++;
-    if (subs) r.subscribersEmailed += await notifySubscribers(cfg, subs, notifier, d);
     r.deals.push((await store.deal(d.id))!);
+  }
+
+  // 5. Members' own alerts: every deal saved this run, judged by each person's rules.
+  if (alertMembers) {
+    try { r.subscribersEmailed += await notifyMembers(cfg, notifier, saved, now); }
+    catch (e) { console.error("member alerts failed", (e as Error).message); }
   }
 
   console.log(`cycle ${cycle} (${r.mode}): ${r.searches} searches (${r.errors} errors), ${r.faresSeen} fares, `

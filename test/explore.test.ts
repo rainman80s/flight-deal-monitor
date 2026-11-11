@@ -4,7 +4,7 @@ import { Budget } from "../src/budget";
 import { IgnavProvider } from "../src/ignav";
 import { runCycle } from "../src/monitor";
 import { ExploreClient, type ExploreDestination, exploreFares, serpApiKey } from "../src/serpapi";
-import { setup } from "./helpers";
+import { sessionFor, setup } from "./helpers";
 
 const NOON = new Date("2026-11-09T20:00:00Z"); // today in Pacific: 2026-11-09
 
@@ -76,7 +76,7 @@ describe("explore runs", () => {
   it("alternates: every 3rd run is Explore, alternating SEA and PDX", async () => {
     const h = harness([], {});
     const modes = [];
-    for (let i = 0; i < 7; i++) modes.push((await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, undefined, h.explore)).mode);
+    for (let i = 0; i < 7; i++) modes.push((await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, false, h.explore)).mode);
     expect(modes).toEqual(["explore", "scan", "scan", "explore", "scan", "scan", "explore"]);
     expect(h.serpCalls.map((u) => new URL(u).searchParams.get("departure_id"))).toEqual(["SEA", "PDX", "SEA"]);
   });
@@ -84,7 +84,8 @@ describe("explore runs", () => {
   it("confirms hits with Ignav and alerts on confirmed ones, including places outside the lists", async () => {
     const h = harness([dest("LAX", 66), dest("OAK", 59), dest("NRT", 280), dest("DEN", 140)],
       { LAX: 66, OAK: 120, NRT: 279 });
-    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, undefined, h.explore);
+    await sessionFor(h.cfg, { role: "admin", contact: "RAN", email: "ran@example.com" });
+    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, true, h.explore);
     expect(r.mode).toBe("explore");
     // DEN ($140) isn't under $100, so it's never confirmed; OAK rose to $120 on confirmation.
     expect(h.ignavCalls.filter((c) => c.startsWith("/fares/round-trip")).map((c) => c.split(" ")[1]).sort()).toEqual(["LAX", "NRT", "OAK"]);
@@ -96,7 +97,7 @@ describe("explore runs", () => {
 
   it("uses Google's price when Ignav can't confirm (request limit)", async () => {
     const h = harness([dest("OAK", 59)], { OAK: 59 }, 0);
-    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, undefined, h.explore);
+    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, false, h.explore);
     expect(r.deals).toHaveLength(1);
     expect(r.deals[0]).toMatchObject({ destination: "OAK", price: 59, provider: "google-explore", dest_name: "Oakland",
       kind: "domestic", booking_url: "https://www.google.com/travel/explore?tfs=abc" });
@@ -106,7 +107,7 @@ describe("explore runs", () => {
   it("respects the rules: too soon or too long trips never alert", async () => {
     const h = harness([dest("LAX", 66, { start_date: "2026-11-20", end_date: "2026-11-27" }),
       dest("SFO", 70, { start_date: "2026-12-12", end_date: "2027-01-02" })], { LAX: 66, SFO: 70 });
-    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, undefined, h.explore);
+    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, false, h.explore);
     expect(r.deals).toHaveLength(0);
     expect(h.ignavCalls).toHaveLength(0);
   });
@@ -114,7 +115,7 @@ describe("explore runs", () => {
   it("stops at the SerpApi daily limit without calling it", async () => {
     const h = harness([dest("LAX", 66)], { LAX: 66 });
     h.explore.client = new ExploreClient("sk", new Budget(h.cfg.env.DB, "serpapi_x", 0, 245), fakeSerp([], h.serpCalls));
-    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, undefined, h.explore);
+    const r = await runCycle(h.cfg, h.store, h.ignav, h.notifier, NOON, false, h.explore);
     expect(h.serpCalls).toHaveLength(0);
     expect(r.budgetStopped).toMatch(/today's limit/);
   });

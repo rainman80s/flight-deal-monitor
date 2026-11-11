@@ -1,4 +1,4 @@
-// Fare Radar: hero, deal columns, route search, logic, account and email sign-up.
+// Fare Radar: deals for everyone; alerts, personal logic and route search for members.
 (() => {
   "use strict";
 
@@ -14,23 +14,80 @@
   const isGoogle = (url) => !url || /google\.com\/travel/.test(url);
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
-  const state = { origin: "", sort: "value", meta: null, deals: [], logic: null };
+  const ago = (iso) => {
+    const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+    const h = Math.round(mins / 60);
+    return h < 24 ? `${h} hour${h === 1 ? "" : "s"} ago` : `${Math.round(h / 24)} days ago`;
+  };
+  const longDate = (iso) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const title = (s) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : "");
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const flash = (node, text, kind) => { node.className = `${node.className.split(" ")[0]}${kind ? ` ${kind}` : ""}`; node.textContent = text; };
+
+  const state = { origin: "", sort: "value", meta: null, deals: [], me: { signed_in: false }, rules: null, note: null };
+  const isMember = () => !!state.me.entitled;
+  const canBook = () => state.me.role === "admin" && !!state.me.booking;
+
+  // ---------------- API ----------------
+  class ApiError extends Error { constructor(m, status, data) { super(m); this.status = status; this.data = data; } }
+  async function api(path, method = "GET", data) {
+    let r;
+    try {
+      r = await fetch(path, { method, credentials: "same-origin",
+        headers: data !== undefined ? { "Content-Type": "application/json" } : {},
+        body: data !== undefined ? JSON.stringify(data) : undefined });
+    } catch { throw new ApiError("Couldn't reach the server. Check your connection and try again.", 0, {}); }
+    const out = await r.json().catch(() => ({}));
+    if (out.code === "must_change_password") openPw();
+    if (!r.ok || out.ok === false) throw new ApiError(out.error || "That didn't go through. Try again.", r.status, out);
+    return out;
+  }
+  /** Only ever send people to Stripe's own pages. */
+  const stripeUrl = (u) => (typeof u === "string" && /^https:\/\/(checkout|billing)\.stripe\.com\//.test(u) ? u : null);
 
   // ---------------- routing ----------------
+  const VIEWS = ["browse", "signup", "account", "logic", "about", "contact", "privacy", "terms", "accessibility"];
   function route() {
-    const VIEWS = ["browse", "signup", "account", "logic", "about", "contact", "privacy", "terms", "accessibility"];
-    const [want, query] = location.hash.slice(1).split("?");
-    state.welcome = query === "welcome";
+    const [want, query = ""] = location.hash.slice(1).split("?");
+    const q = new URLSearchParams(query);
+    // One-time tokens arrive in the URL fragment; read them, then wipe them from the address bar and history.
+    if (want === "reset" || want === "verify") {
+      const token = q.get("token") || "";
+      history.replaceState(null, "", want === "reset" ? "#browse" : "#account");
+      if (want === "reset") { state.resetToken = token; openAuth("reset"); }
+      else verifyEmail(token);
+      return route();
+    }
+    if (want === "signin") {
+      history.replaceState(null, "", "#browse");
+      const err = q.get("error");
+      openAuth("signin", err ? ({ cancelled: "Sign-in was cancelled.", expired: "That took too long. Try again.",
+        unavailable: "That sign-in option isn't available right now." }[err] || "Couldn't sign you in with that account. Try again.") : "");
+      return route();
+    }
+    if (want === "account" && q.get("billing")) {
+      history.replaceState(null, "", "#account");
+      if (q.get("billing") === "success") syncBilling();
+      else state.note = "Checkout was cancelled. Nothing was charged.";
+    }
     const tab = VIEWS.includes(want) ? want : "browse";
     for (const v of VIEWS) $(`#view-${v}`).hidden = v !== tab;
     const h = tab === "browse" ? "" : $(`#view-${tab} h1`).textContent;
     document.title = !h || h.includes("Fare Radar") ? h || "Fare Radar" : `${h} · Fare Radar`;
-    if (tab === "account" && typeof renderAccount === "function") renderAccount();
-    if (tab === "logic" && typeof renderLogic === "function") renderLogic();
+    if (tab === "account") renderAccount();
+    if (tab === "logic") renderLogic();
+    if (tab === "signup") renderAlerts();
     $(".segmented").dataset.active = tab;
     $$(".segmented a").forEach((a) => (a.dataset.tab === tab
       ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
-    if (location.hash === "#deals") $("#deals").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    if (want === "deals") $("#deals").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     else window.scrollTo(0, 0);
   }
   window.addEventListener("hashchange", route);
@@ -58,14 +115,6 @@
   }
 
   // ---------------- meta ----------------
-  function ago(iso) {
-    const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
-    const h = Math.round(mins / 60);
-    return h < 24 ? `${h} hour${h === 1 ? "" : "s"} ago` : `${Math.round(h / 24)} days ago`;
-  }
-
   async function loadMeta() {
     try {
       const m = await (await fetch("/api/meta")).json();
@@ -74,18 +123,12 @@
       $("#last-checked").textContent = m.last_checked_at ? `Fares updated ${ago(m.last_checked_at)}` : "";
       $("#demo-note").hidden = !m.demo;
       setupSearch(m);
-
       $('[data-filter="origin"]').replaceChildren(segButton("", "SEA + PDX", true, "radio"),
         ...m.origins.map((o) => segButton(o.code, o.code, false, "radio")));
-      $("#home").replaceChildren(...m.origins.map((o) => segButton(o.code, `${o.city} (${o.code})`, true, "toggle")));
-
-      for (const [id, v] of [["#dom", m.domestic_max], ["#intl", m.international_max]]) {
-        const el = $(id);
-        el.max = String(v);
-        el.value = String(v);
-        paintRange(el);
-        $(`${id}-out`).textContent = money(v);
-      }
+      const providers = m.auth?.providers || [];
+      $("#oauth-google").hidden = !providers.includes("google");
+      $("#oauth-apple").hidden = !providers.includes("apple");
+      $("#oauth-buttons").hidden = !providers.length;
     } catch {
       $("#last-checked").textContent = "";
     }
@@ -94,14 +137,15 @@
   // ---------------- deals ----------------
   let reqId = 0;
   const COLS = { international: ["#rows-intl", "#empty-intl", "#rule-intl"], domestic: ["#rows-dom", "#empty-dom", "#rule-dom"] };
+  const VISIBLE_ROWS = 10;
 
   async function loadDeals() {
     const id = ++reqId;
     $("#board").classList.add("loading");
     const fetchKind = async (kind) => {
-      const q = new URLSearchParams({ sort: state.sort, limit: "25", kind });
+      const q = new URLSearchParams({ sort: state.sort, limit: "60", kind });
       if (state.origin) q.set("origin", state.origin);
-      try { return (await (await fetch(`/api/deals?${q}`)).json()).deals ?? []; } catch { return []; }
+      try { return (await (await fetch(`/api/deals?${q}`, { credentials: "same-origin" })).json()).deals ?? []; } catch { return []; }
     };
     const [intl, dom] = await Promise.all([fetchKind("international"), fetchKind("domestic")]);
     if (id !== reqId) return;
@@ -113,42 +157,50 @@
       $(empty).hidden = deals.length > 0;
       $(empty).textContent = state.origin
         ? `Nothing from ${state.origin} right now.`
-        : kind === "international"
-          ? "Nothing abroad under the limit right now. Fares like that come and go; this list updates every hour."
-          : "Nothing in the US under the limit right now. This list updates every hour.";
+        : "Nothing fits right now. Fares like that come and go; this list updates every hour.";
+      const count = $(`#count-${kind === "international" ? "intl" : "dom"}`);
+      count.textContent = deals.length ? `${deals.length} deal${deals.length === 1 ? "" : "s"}` : "";
     }
+    fitColumns();
     renderPreview(state.deals.filter((d) => d.pinged).concat(state.deals));
   }
 
-  /** One-line rule under each column header, from the Logic panel. */
-  function renderColumnRules(logic) {
-    if (!logic) return;
+  /** Each column shows 10 deals; the rest scroll inside the card. */
+  function fitColumns() {
+    for (const [rows] of Object.values(COLS)) {
+      const list = $(rows);
+      const items = [...list.children];
+      const more = list.parentElement.querySelector(".col-more");
+      if (items.length > VISIBLE_ROWS) {
+        list.style.maxHeight = `${items.slice(0, VISIBLE_ROWS).reduce((h, r) => h + r.offsetHeight, 0)}px`;
+        list.classList.add("scrolls");
+        more.hidden = false;
+        more.textContent = `Scroll for ${items.length - VISIBLE_ROWS} more`;
+      } else {
+        list.style.maxHeight = "";
+        list.classList.remove("scrolls");
+        more.hidden = true;
+      }
+    }
+  }
+  let fitTimer;
+  window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitColumns, 150); });
+  $$(".deal-list").forEach((list) => list.addEventListener("scroll", () => {
+    const more = list.parentElement.querySelector(".col-more");
+    if (more) more.classList.toggle("done", list.scrollTop + list.clientHeight >= list.scrollHeight - 4);
+  }));
+
+  /** One-line rule under each column header: your own rules if you're a member, else the site's. */
+  function renderColumnRules() {
+    const cats = state.rules || state.meta?.rules;
+    if (!cats) return;
     const line = (c) => {
-      const ping = c.alert.mode === "smart"
-        ? `pings at ${c.alert.drop_percent}%+ below usual`
-        : `pings under $${c.alert.under}`;
+      const ping = c.alert.mode === "smart" ? `alerts at ${c.alert.drop_percent}%+ below usual` : `alerts under $${c.alert.under}`;
       return `${c.min_days_out}+ days out · ${c.min_trip_days}–${c.max_trip_days} day trips · under $${c.show_under} · ${ping}`;
     };
-    $(COLS.international[2]).textContent = line(logic.categories.international);
-    $(COLS.domestic[2]).textContent = line(logic.categories.domestic);
-  }
-
-  function setLink(a, url, fake, long = false, trip = null) {
-    // Signed-in owners get a Buy button that opens the booking sheet instead of a link out.
-    if (trip && canBook()) {
-      a.textContent = "Buy";
-      a.removeAttribute("aria-disabled");
-      a.href = "#browse";
-      a.onclick = (e) => { e.preventDefault(); openBook(trip); };
-      a.title = "";
-      return;
-    }
-    a.onclick = null;
-    const u = safeUrl(url);
-    a.textContent = isGoogle(u) ? (long ? "Search Google Flights" : "Search") : (long ? "Book with the airline" : "Book");
-    if (u) { a.href = u; a.removeAttribute("aria-disabled"); }
-    else { a.removeAttribute("href"); a.setAttribute("aria-disabled", "true"); }
-    a.title = fake ? "Test fare: the search link won't show this price" : "";
+    $(COLS.international[2]).textContent = line(cats.international);
+    $(COLS.domestic[2]).textContent = line(cats.domestic);
+    $("#rules-whose").textContent = state.rules ? "Showing deals by your own rules." : "";
   }
 
   const tripOf = (d) => ({ origin: d.origin, destination: d.destination, origin_city: d.origin_city,
@@ -160,35 +212,98 @@
     $(".d", n).textContent = d.destination;
     $(".city", n).textContent = d.destination_city;
     const how = d.estimate
-      ? (d.airlines.length ? `${d.airlines.join(", ")} · Google price` : "price calendar estimate")
-      : `${stopsPair(d)} · ${d.airlines.join(", ") || "—"}`;
+      ? (d.airlines.length ? `${airlineNames(d.airlines)} · estimate` : "price estimate")
+      : `${stopsPair(d)} · ${airlineNames(d.airlines) || "—"}`;
     $(".dr-when", n).textContent = `${short(d.depart_date)} – ${short(d.return_date)} · ${d.trip_days} days · ${how}`;
     const usual = $(".dr-usual", n);
-    if (d.pinged && d.ping_reason) {
-      const why = document.createElement("span");
-      why.className = "why";
-      why.textContent = `Pinged: ${d.ping_reason}`;
-      usual.append(why);
-    } else if (d.typical) {
-      usual.textContent = `Usually $${Math.round(d.typical.low)}–$${Math.round(d.typical.high)} on this route`;
-    } else {
-      usual.textContent = "Still learning this route's usual price";
-    }
+    if (d.pinged && d.ping_reason) usual.append(el("span", "why", `Deal: ${d.ping_reason}`));
+    else if (d.typical) usual.textContent = `Usually $${Math.round(d.typical.low)}–$${Math.round(d.typical.high)} on this route`;
+    else usual.textContent = "Still learning this route's usual price";
     const price = $(".dr-price", n);
     if (d.pinged) {
-      const dot = document.createElement("span");
-      dot.className = "ping-dot";
-      dot.title = "Pinged";
+      const dot = el("span", "ping-dot");
+      dot.title = "Worth an alert";
       price.append(dot);
       n.classList.add("pinged");
     }
     price.append(money(d.price));
-    setLink($("a", n), d.booking_url, d.is_fake, false, d.is_fake ? null : tripOf(d));
-    $("a", n).setAttribute("aria-label", `Book ${d.origin_city} to ${d.destination_city}, ${money(d.price)}`);
+    const btn = $(".dr-open", n);
+    btn.setAttribute("aria-label", `${d.origin_city} to ${d.destination_city}, ${money(d.price)}, ${short(d.depart_date)} to ${short(d.return_date)}. Show details`);
+    btn.addEventListener("click", () => openDeal(d));
     return n;
   }
 
-  // The sign-up page shows the real alert layout, filled with the newest deal.
+  // ---------------- one deal, at a glance ----------------
+  const AIRLINES = {
+    AS: ["Alaska Airlines", "https://www.alaskaair.com"], DL: ["Delta", "https://www.delta.com"],
+    UA: ["United", "https://www.united.com"], AA: ["American Airlines", "https://www.aa.com"],
+    WN: ["Southwest", "https://www.southwest.com"], B6: ["JetBlue", "https://www.jetblue.com"],
+    F9: ["Frontier", "https://www.flyfrontier.com"], NK: ["Spirit", "https://www.spirit.com"],
+    G4: ["Allegiant", "https://www.allegiantair.com"], HA: ["Hawaiian Airlines", "https://www.hawaiianairlines.com"],
+    SY: ["Sun Country", "https://www.suncountry.com"], MX: ["Breeze", "https://www.flybreeze.com"],
+    XP: ["Avelo", "https://www.aveloair.com"], AC: ["Air Canada", "https://www.aircanada.com"],
+    WS: ["WestJet", "https://www.westjet.com"], PD: ["Porter", "https://www.flyporter.com"],
+    TS: ["Air Transat", "https://www.airtransat.com"], Y4: ["Volaris", "https://www.volaris.com"],
+    AM: ["Aeroméxico", "https://www.aeromexico.com"], VB: ["Viva Aerobus", "https://www.vivaaerobus.com"],
+    CM: ["Copa Airlines", "https://www.copaair.com"], AV: ["Avianca", "https://www.avianca.com"],
+    LA: ["LATAM", "https://www.latamairlines.com"], JL: ["Japan Airlines", "https://www.jal.co.jp/en/"],
+    NH: ["ANA", "https://www.ana.co.jp/en/us/"], ZG: ["ZIPAIR", "https://www.zipair.net/en"],
+    KE: ["Korean Air", "https://www.koreanair.com"], OZ: ["Asiana", "https://flyasiana.com"],
+    BR: ["EVA Air", "https://www.evaair.com"], CI: ["China Airlines", "https://www.china-airlines.com"],
+    CX: ["Cathay Pacific", "https://www.cathaypacific.com"], SQ: ["Singapore Airlines", "https://www.singaporeair.com"],
+    PR: ["Philippine Airlines", "https://www.philippineairlines.com"], BA: ["British Airways", "https://www.britishairways.com"],
+    VS: ["Virgin Atlantic", "https://www.virginatlantic.com"], LH: ["Lufthansa", "https://www.lufthansa.com"],
+    AF: ["Air France", "https://www.airfrance.us"], KL: ["KLM", "https://www.klm.us"],
+    IB: ["Iberia", "https://www.iberia.com"], EI: ["Aer Lingus", "https://www.aerlingus.com"],
+    FI: ["Icelandair", "https://www.icelandair.com"], SK: ["SAS", "https://www.flysas.com"],
+    LX: ["SWISS", "https://www.swiss.com"], TP: ["TAP Air Portugal", "https://www.flytap.com"],
+    AY: ["Finnair", "https://www.finnair.com"], DE: ["Condor", "https://www.condor.com"],
+    TK: ["Turkish Airlines", "https://www.turkishairlines.com"], EK: ["Emirates", "https://www.emirates.com"],
+    QR: ["Qatar Airways", "https://www.qatarairways.com"], NZ: ["Air New Zealand", "https://www.airnewzealand.com"],
+    QF: ["Qantas", "https://www.qantas.com"], FJ: ["Fiji Airways", "https://www.fijiairways.com"],
+  };
+  const airlineNames = (codes) => (codes || []).map((c) => AIRLINES[c]?.[0] || c).join(", ");
+
+  function openDeal(d) {
+    const dlg = $("#deal-dlg");
+    $("#deal-kind").textContent = `${d.kind === "international" ? "International" : "Domestic"}${d.pinged ? " · worth an alert" : ""}`;
+    $("#deal-title").textContent = `${d.origin_city} → ${d.destination_city}`;
+    $("#deal-codes").textContent = `${d.origin} → ${d.destination}`;
+    $("#deal-price").textContent = money(d.price);
+    const why = $("#deal-why");
+    why.hidden = !(d.pinged && d.ping_reason);
+    why.textContent = d.ping_reason ? `Why it's a deal: ${d.ping_reason}` : "";
+    $("#deal-depart").textContent = short(d.depart_date);
+    $("#deal-return").textContent = short(d.return_date);
+    $("#deal-days").textContent = `${d.trip_days} days`;
+    $("#deal-airline").textContent = airlineNames(d.airlines) || "Shown when you open the fare";
+    $("#deal-stops").textContent = d.estimate ? "Shown when you open the fare" : stopsPair(d);
+    $("#deal-usual").textContent = d.typical
+      ? `$${Math.round(d.typical.low)}–$${Math.round(d.typical.high)} (typically $${Math.round(d.typical.median)})`
+      : "Still learning this route";
+    $("#deal-note").textContent = d.is_fake ? "This is a test fare, not a real flight."
+      : d.estimate ? "This price comes from a fare calendar or Google's explore view. The exact fare and flight times show when you open it." : "";
+    $("#deal-found").textContent = ago(d.found_at);
+
+    const first = (d.airlines || []).find((c) => AIRLINES[c]);
+    const air = $("#deal-airline-btn");
+    if (first && !d.is_fake) {
+      air.hidden = false;
+      air.textContent = `Go to ${AIRLINES[first][0]}`;
+      air.href = AIRLINES[first][1];
+    } else air.hidden = true;
+    const g = $("#deal-google-btn");
+    const gUrl = safeUrl(d.booking_url) || `https://www.google.com/travel/flights?q=${encodeURIComponent(
+      `Flights from ${d.origin} to ${d.destination} on ${d.depart_date} through ${d.return_date}`)}`;
+    g.href = gUrl;
+    g.className = first && !d.is_fake ? "btn glass-btn" : "btn primary";
+    const buy = $("#deal-buy");
+    buy.hidden = !(canBook() && !d.is_fake);
+    buy.onclick = () => { dlg.close(); openBook(tripOf(d)); };
+    dlg.showModal();
+  }
+
+  // The alerts page shows the real alert layout, filled with the newest deal.
   function renderPreview(deals) {
     const d = deals[0];
     if (!d) return;
@@ -197,46 +312,69 @@
     $("#pv-route").textContent = `${d.origin_city} → ${d.destination_city}`;
     $("#pv-price").textContent = money(d.price);
     $("#pv-dates").textContent = `${short(d.depart_date)} → ${short(d.return_date)} · ${d.trip_days} days · ${stopsPair(d)}`;
-    $(".pv-btn").textContent = isGoogle(safeUrl(d.booking_url)) ? "See it on Google Flights" : "Book on the airline's site";
-    $("#preview-src").textContent = d.is_fake ? "(filled with a test fare)" : "(filled with the newest deal)";
+    $("#preview-src").textContent = d.is_fake ? " (filled with a test fare)" : " (filled with the newest deal)";
   }
 
-  // ---------------- recently checked ----------------
-  const monthDay = (iso) => fmt(iso, { month: "short", day: "numeric" });
-
-  async function loadChecks() {
-    let checks = [];
-    try { checks = (await (await fetch("/api/checks?limit=12")).json()).checks ?? []; } catch { /* empty */ }
-    $("#checks").replaceChildren(...checks.map((c) => {
-      const li = document.createElement("li");
-      li.className = "row";
-      const cell = (cls, ...kids) => {
-        const s = document.createElement("span");
-        s.className = cls;
-        s.append(...kids);
-        return s;
-      };
-      const txt = (cls, t) => { const s = document.createElement("span"); s.className = cls; s.textContent = t; return s; };
-      const codes = txt("codes", "");
-      const o = document.createElement("b"); o.textContent = c.origin;
-      const d = document.createElement("b"); d.textContent = c.destination;
-      codes.append(o, txt("arrow", "→"), d);
-      const under = c.cheapest !== null && c.limit !== null && c.cheapest < c.limit;
-      li.append(
-        cell("k-route", codes, txt("city", c.destination_city)),
-        cell("k-dates", txt("dates", `${monthDay(c.window_start)} – ${monthDay(c.window_end)}`),
-          txt("sub", `${c.stay_days}-day trips`)),
-        cell("k-price num", txt(under ? "under" : "over", c.cheapest === null ? "no fares" : money(c.cheapest)),
-          txt("sub", c.cheapest_date ? `leaving ${short(c.cheapest_date)}` : ""), ...buyButton(c)),
-        cell("k-limit num", txt("sub", c.limit ? money(c.limit) : "—")),
-        cell("k-when num", txt("sub", ago(c.checked_at))),
-      );
-      return li;
-    }));
-    $("#checks-empty").hidden = checks.length > 0;
+  // ---------------- paywall ----------------
+  /** Fills a locked panel: sign up first, or become a member. */
+  function fillLock(node, feature) {
+    node.replaceChildren();
+    const signedIn = !!state.me.signed_in;
+    node.append(el("h3", "", `${feature} is for members`));
+    node.append(el("p", "", signedIn
+      ? "Membership is $8/month and covers deal alerts by your own rules, your own logic, and checking any route across a whole month. Cancel any time."
+      : "Create a free account, then become a member for $8/month to get deal alerts by your own rules, your own logic, and route search. Cancel any time."));
+    const actions = el("div", "t-actions");
+    if (signedIn) {
+      const b = el("button", "btn primary", "Become a member · $8/month");
+      b.type = "button";
+      b.addEventListener("click", () => startCheckout(b, node));
+      const more = el("a", "btn glass-btn", "What's included");
+      more.href = "#account";
+      actions.append(b, more);
+    } else {
+      const a = el("button", "btn primary", "Create an account");
+      a.type = "button";
+      a.addEventListener("click", () => openAuth("signup"));
+      const s = el("button", "btn glass-btn", "Sign in");
+      s.type = "button";
+      s.addEventListener("click", () => openAuth("signin"));
+      actions.append(a, s);
+    }
+    node.append(actions, el("p", "t-msg lock-msg"));
   }
 
-  // ---------------- route search ----------------
+  function renderLocks() {
+    const member = isMember();
+    $("#search-locked").hidden = member;
+    $("#search-form").hidden = !member;
+    if (!member) fillLock($("#search-locked"), "Route search");
+  }
+
+  async function startCheckout(btn, where) {
+    const msg = $(".lock-msg, .t-msg", where) || $("#mem-msg");
+    if (state.meta && !state.meta.billing?.enabled) { flash(msg, "Memberships open soon. Check back in a few days.", "err"); return; }
+    btn.disabled = true;
+    flash(msg, "Opening secure checkout…");
+    try {
+      const out = await api("/api/billing/checkout", "POST", {});
+      const url = stripeUrl(out.url);
+      if (!url) throw new ApiError("Checkout isn't available right now.", 0, {});
+      location.href = url;
+    } catch (e) { flash(msg, e.message, "err"); btn.disabled = false; }
+  }
+
+  async function syncBilling() {
+    state.note = "Thanks! Confirming your membership with Stripe…";
+    try {
+      const out = await api("/api/billing/sync", "POST", {});
+      state.note = out.entitled ? "Welcome aboard. Your membership is active: alerts, your own logic and route search are unlocked."
+        : "Your payment is still processing. This page updates once Stripe confirms it.";
+    } catch (e) { state.note = e.message; }
+    await refreshMe();
+  }
+
+  // ---------------- route search (members) ----------------
   function option(value, label) {
     const o = document.createElement("option");
     o.value = value;
@@ -300,7 +438,7 @@
         msg.textContent = "";
         renderCalendar(data);
         $("#search-left").textContent = data.searches_left_today;
-        loadChecks();
+
       } catch {
         msg.textContent = "Couldn't reach the server. Check your connection and try again.";
         msg.classList.add("err");
@@ -375,82 +513,154 @@
     $("#s-results").hidden = false;
   }
 
-  // ---------------- owner sign-in ----------------
-  state.me = { signed_in: false };
-  const canBook = () => state.me.role === "owner";
-  const title = (s) => s.charAt(0) + s.slice(1).toLowerCase();
-
+  // ---------------- who's signed in ----------------
   async function loadMe() {
-    try { state.me = await (await fetch("/api/me", { credentials: "same-origin" })).json(); } catch { /* signed out */ }
+    try { state.me = await (await fetch("/api/me", { credentials: "same-origin" })).json(); } catch { state.me = { signed_in: false }; }
     const btn = $("#account-btn");
     btn.replaceChildren();
     if (state.me.signed_in) {
-      const who = document.createElement("span");
-      who.className = "acct-who";
-      who.textContent = `${title(state.me.name)} · `;
-      btn.append(who, "Account");
-    } else {
-      btn.textContent = "Sign in";
+      btn.append(el("span", "acct-who", `${state.me.name} · `), "Account");
+    } else btn.textContent = "Sign in";
+    if (state.me.must_change_password) openPw();
+    state.rules = null;
+    if (isMember()) {
+      try { state.rules = (await api("/api/account/rules")).categories; } catch { /* site rules */ }
     }
-    // Members manage alerts on their account page instead of the public sign-up form.
-    const member = state.me.role === "member";
-    $("#signup-member").hidden = !member;
-    $("#signup-form").hidden = member;
-    $("#signup-hint").hidden = !!state.me.signed_in;
-    if (member) $("#signup-member-email").textContent = state.me.email;
-    if (location.hash.startsWith("#account")) renderAccount();
+    renderColumnRules();
+    renderLocks();
   }
 
-  function buyButton(c) {
-    if (!canBook() || !c.cheapest_date) return [];
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "btn small buy-small";
-    b.textContent = "Buy";
-    b.style.marginTop = "4px";
-    b.addEventListener("click", () => openBook({ origin: c.origin, destination: c.destination, origin_city: c.origin_city,
-      destination_city: c.destination_city, depart: c.cheapest_date, ret: c.cheapest_return }));
-    return [b];
+  /** After signing in or out, or a membership change: reload what depends on it. */
+  async function refreshMe() {
+    await loadMe();
+    loadDeals();
+    route();
   }
 
-  function wireAccount() {
-    const openSignin = () => { $("#signin-msg").textContent = ""; $("#signin-dlg").showModal(); };
+  // ---------------- sign in / create account / forgot / reset ----------------
+  let authMode = "signin";
+  function openAuth(mode, message = "") {
+    authMode = mode;
+    const dlg = $("#auth-dlg");
+    const form = $("#auth-form");
+    const titles = { signin: "Sign in", signup: "Create your account", forgot: "Reset your password", reset: "Choose a new password" };
+    $("#auth-title").textContent = titles[mode];
+    $$(".auth-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
+    $(".auth-tabs").hidden = mode === "forgot" || mode === "reset";
+    $("#oauth-buttons").hidden = !(state.meta?.auth?.providers?.length) || mode === "forgot" || mode === "reset";
+    $(".auth-name", form).hidden = mode !== "signup";
+    $(".auth-pass", form).hidden = mode === "forgot";
+    form.elements.email.closest("label").hidden = mode === "reset";
+    form.elements.password.autocomplete = mode === "signin" ? "current-password" : "new-password";
+    form.elements.password.required = mode !== "forgot";
+    $(".auth-pass .field-label", form).textContent = mode === "reset" ? "New password" : "Password";
+    $(".auth-hint", form).hidden = !(mode === "signup" || mode === "reset");
+    $(".auth-legal", form).hidden = mode !== "signup";
+    $("#auth-forgot").hidden = mode !== "signin";
+    $("#auth-submit").textContent = { signin: "Sign in", signup: "Create account", forgot: "Email me a reset link", reset: "Save new password" }[mode];
+    form.elements.password.value = "";
+    $$("[aria-invalid]", form).forEach((x) => x.removeAttribute("aria-invalid"));
+    flash($("#auth-msg"), message, message ? "err" : "");
+    if (!dlg.open) dlg.showModal();
+    (mode === "reset" ? form.elements.password : form.elements.email).focus();
+  }
+
+  function wireAuth() {
     $("#account-btn").addEventListener("click", () => {
       if (state.me.signed_in) location.hash = "#account";
-      else openSignin();
+      else openAuth("signin");
     });
-    $("#acct-signin").addEventListener("click", openSignin);
-    $("#acct-signout").addEventListener("click", async () => {
-      await fetch("/api/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
-      location.hash = "#browse";
-      location.reload();
-    });
-    $("#signin-form").addEventListener("submit", async (e) => {
+    $$("[data-auth]").forEach((b) => b.addEventListener("click", () => openAuth(b.dataset.auth)));
+    $$(".auth-tabs button").forEach((b) => b.addEventListener("click", () => openAuth(b.dataset.mode)));
+    $("#auth-forgot").addEventListener("click", () => openAuth("forgot"));
+    $$("#auth-dlg [data-close]").forEach((a) => a.addEventListener("click", () => $("#auth-dlg").close()));
+
+    $("#auth-form").addEventListener("submit", async (e) => {
       e.preventDefault();
-      const email = $("#signin-email");
-      const msg = $("#signin-msg");
-      msg.className = "form-msg";
-      if (!email.value || !email.checkValidity()) {
-        msg.textContent = "Enter your email address.";
-        msg.classList.add("err");
-        return;
+      const form = e.target;
+      const msg = $("#auth-msg");
+      const email = form.elements.email.value.trim();
+      const password = form.elements.password.value;
+      $$("[aria-invalid]", form).forEach((x) => x.removeAttribute("aria-invalid"));
+      if (authMode !== "reset" && (!email || !form.elements.email.checkValidity())) {
+        form.elements.email.setAttribute("aria-invalid", "true");
+        return flash(msg, "Enter your email address.", "err");
       }
-      const btn = $("button[type=submit]", e.target);
+      if (authMode !== "forgot" && !password) {
+        form.elements.password.setAttribute("aria-invalid", "true");
+        return flash(msg, "Enter your password.", "err");
+      }
+      const btn = $("#auth-submit");
       btn.disabled = true;
+      flash(msg, authMode === "forgot" ? "Sending…" : "One moment…");
       try {
-        const r = await fetch("/api/login", { method: "POST", credentials: "same-origin",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value.trim() }) });
-        const data = await r.json().catch(() => ({}));
-        msg.textContent = data.ok
-          ? `Check your inbox: we sent a link to ${email.value.trim()}. It works once, for 20 minutes.`
-          : data.error || "That didn't go through. Try again.";
-        msg.classList.add(data.ok ? "ok" : "err");
-      } catch {
-        msg.textContent = "Couldn't reach the server.";
-        msg.classList.add("err");
+        if (authMode === "forgot") {
+          await api("/api/auth/forgot", "POST", { email });
+          flash(msg, `If there's an account for ${email}, a reset link is on its way. It works once, for 30 minutes.`, "ok");
+          return;
+        }
+        if (authMode === "reset") {
+          await api("/api/auth/reset", "POST", { token: state.resetToken, password });
+          state.resetToken = null;
+          state.note = "Your password is changed and you're signed in. Every other device was signed out.";
+        } else if (authMode === "signup") {
+          const out = await api("/api/auth/signup", "POST", { email, password, name: form.elements.name.value.trim() });
+          state.note = out.verification_sent
+            ? `Welcome to Fare Radar! We sent a confirmation link to ${email}.`
+            : "Welcome to Fare Radar! Your account is ready.";
+        } else {
+          await api("/api/auth/login", "POST", { email, password });
+        }
+        form.reset();
+        $("#auth-dlg").close();
+        if (authMode === "signup" || authMode === "reset") location.hash = "#account";
+        await refreshMe();
+      } catch (err) {
+        if (err.data?.token) state.resetToken = err.data.token; // a fresh reset link after a rejected password
+        const field = err.data?.field;
+        if (field && form.elements[field]) form.elements[field].setAttribute("aria-invalid", "true");
+        flash(msg, err.message, "err");
       } finally { btn.disabled = false; }
     });
-    wireBooking();
+  }
+
+  async function verifyEmail(token) {
+    try {
+      await api("/api/auth/verify", "POST", { token });
+      state.note = "Your email is confirmed. Thanks!";
+    } catch (e) { state.note = e.message; }
+    if (state.me.signed_in) await refreshMe();
+    else renderAccount();
+  }
+
+  // ---------------- forced password change ----------------
+  function openPw() {
+    const dlg = $("#pw-dlg");
+    if (!dlg.open) dlg.showModal();
+  }
+  function wirePw() {
+    const dlg = $("#pw-dlg");
+    dlg.addEventListener("cancel", (e) => e.preventDefault()); // Escape can't skip it
+    $("#pw-signout").addEventListener("click", signOut);
+    $("#pw-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const msg = $("#pw-msg");
+      if (f.elements.password.value !== f.elements.again.value) return flash(msg, "The new passwords don't match.", "err");
+      try {
+        await api("/api/auth/password", "POST", { current: f.elements.current.value, password: f.elements.password.value });
+        f.reset();
+        dlg.close();
+        state.note = "Your new password is saved.";
+        await refreshMe();
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+  }
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    location.hash = "#browse";
+    location.reload();
   }
 
   // ---------------- booking sheet ----------------
@@ -488,14 +698,21 @@
       : "Live mode: purchases are real and charged to your Duffel balance.";
 
     const problems = [];
-    if (!b.duffel) problems.push("Add your Duffel access token as the <code>DUFFEL_ACCESS_TOKEN</code> secret in Cloudflare.");
-    if (!b.enabled) problems.push("Purchasing is switched off in <code>config.json</code> (<code>booking_enabled</code>).");
+    if (!b.duffel) problems.push(["Add your Duffel access token as the DUFFEL_ACCESS_TOKEN secret in Cloudflare."]);
+    if (!b.enabled) problems.push(["Purchasing is switched off in config.json (booking_enabled)."]);
     if (!(b.travelers || []).some((x) => x.ready)) {
-      problems.push('Add traveler details on your <a href="#account" data-close>Account page</a>.');
+      const a = el("a", "", "Account page");
+      a.href = "#account";
+      a.dataset.close = "";
+      problems.push(["Add traveler details on your ", a, "."]);
     }
     const setup = $("#book-setup");
     setup.hidden = !problems.length;
-    setup.innerHTML = problems.length ? `<b>Before you can buy:</b><br>${problems.join("<br>")}` : "";
+    setup.replaceChildren();
+    if (problems.length) {
+      setup.append(el("b", "", "Before you can buy:"));
+      for (const parts of problems) setup.append(document.createElement("br"), ...parts);
+    }
 
     $("#b-travelers").replaceChildren(...(b.travelers || []).map((x) => {
       const l = document.createElement("label");
@@ -504,7 +721,7 @@
       i.type = "checkbox";
       i.value = x.name;
       i.disabled = !x.ready;
-      i.checked = x.ready && x.name === state.me.name;
+      i.checked = x.ready && x.name === state.me.contact;
       l.append(i, ` ${title(x.name)}${x.ready ? "" : " (no details)"}`);
       return l;
     }));
@@ -642,26 +859,197 @@
     $("#b-confirm").scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
-  // ---------------- account: traveler details ----------------
+
+  // ---------------- account page ----------------
   async function renderAccount() {
-    const signedIn = !!state.me.signed_in;
-    $("#acct-signed-out").hidden = signedIn;
-    $("#acct-signed-in").hidden = !signedIn;
-    if (!signedIn) return;
-    const member = state.me.role === "member";
-    $("#acct-owner").hidden = member;
-    $("#acct-member").hidden = !member;
-    if (member) return renderMember();
-    $("#acct-name").textContent = title(state.me.name);
-    let data;
-    try { data = await (await fetch("/api/profiles", { credentials: "same-origin" })).json(); } catch { data = null; }
-    const list = $("#acct-list");
-    if (!data?.ok) { list.textContent = "Couldn't load traveler details. Refresh to try again."; return; }
-    // You first, then everyone else.
-    const people = [...data.travelers].sort((a, b) => Number(b.is_you) - Number(a.is_you));
-    list.replaceChildren(...people.map(travelerForm));
+    const me = state.me;
+    $("#acct-signed-out").hidden = !!me.signed_in;
+    $("#acct-signed-in").hidden = !me.signed_in;
+    const note = $("#acct-note");
+    note.hidden = !state.note;
+    note.textContent = state.note || "";
+    if (!me.signed_in) return;
+
+    // membership
+    const sub = me.subscription || {};
+    const pill = $("#mem-pill");
+    const text = $("#mem-text");
+    const subscribe = $("#mem-subscribe");
+    const manage = $("#mem-manage");
+    subscribe.hidden = true;
+    manage.hidden = !sub.can_manage;
+    if (me.role === "admin") {
+      pill.textContent = "Admin";
+      text.textContent = "Full access at no charge, plus booking and the site-wide settings.";
+    } else if (me.entitled) {
+      pill.textContent = sub.status === "past_due" ? "Payment due" : "Member";
+      text.textContent = sub.status === "past_due"
+        ? "Your last payment didn't go through. Update your card in Manage billing to keep your membership."
+        : sub.cancel_at_period_end && sub.renews_at ? `Your membership ends on ${longDate(sub.renews_at)}. You can restart it in Manage billing.`
+        : sub.renews_at ? `Renews on ${longDate(sub.renews_at)} at ${sub.price}.` : "Your membership is active.";
+    } else {
+      pill.textContent = "Free";
+      text.textContent = `Become a member for ${sub.price || "$8/month"} to unlock everything below. Cancel any time.`;
+      subscribe.hidden = false;
+    }
+    pill.dataset.kind = me.role === "admin" ? "admin" : me.entitled ? "member" : "free";
+    $("#mem-perks").hidden = me.entitled && me.role !== "admin" ? false : false;
+
+    // profile
+    $("#acct-email").value = me.email;
+    const form = $("#acct-profile");
+    if (document.activeElement !== form.elements.name) form.elements.name.value = me.name === me.email.split("@")[0] ? "" : me.name;
+    const vline = $("#acct-verify-line");
+    vline.replaceChildren();
+    if (me.email_verified) vline.append("Email confirmed ✓");
+    else {
+      vline.append("Your email isn't confirmed yet. ");
+      const b = el("button", "linkish", "Send the confirmation email again");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try { await api("/api/auth/verify/resend", "POST", {}); b.replaceWith("Sent. Check your inbox."); }
+        catch (e) { b.replaceWith(e.message); }
+      });
+      vline.append(b);
+    }
+
+    // password
+    const methods = (me.sign_in_methods || []).map((m) => ({ password: "email and password", google: "Google", apple: "Apple" }[m] || m));
+    $("#acct-methods").textContent = methods.length ? `You sign in with ${methods.join(", ")}.` : "";
+    $("#pw-current-wrap").hidden = !me.has_password;
+    $("#acct-password button[type=submit]").textContent = me.has_password ? "Change password" : "Set a password";
+
+    // owners' traveler details
+    $("#acct-owner").hidden = !canBook();
+    if (canBook()) {
+      try {
+        const data = await (await fetch("/api/profiles", { credentials: "same-origin" })).json();
+        if (data?.ok) {
+          const people = [...data.travelers].sort((a, b) => Number(b.is_you) - Number(a.is_you));
+          $("#acct-list").replaceChildren(...people.map(travelerForm));
+        }
+      } catch { $("#acct-list").textContent = "Couldn't load traveler details. Refresh to try again."; }
+    }
+    $("#acct-delete").hidden = me.role === "admin";
+    $("#delete-pass-wrap").hidden = !me.has_password;
   }
 
+  function wireAccountPage() {
+    $("#mem-subscribe").addEventListener("click", (e) => startCheckout(e.currentTarget, $("#mem-subscribe").closest("section")));
+    $("#mem-manage").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const msg = $("#mem-msg");
+      btn.disabled = true;
+      try {
+        const url = stripeUrl((await api("/api/billing/portal", "POST", {})).url);
+        if (!url) throw new ApiError("Billing isn't available right now.", 0, {});
+        location.href = url;
+      } catch (err) { flash(msg, err.message, "err"); btn.disabled = false; }
+    });
+
+    $("#acct-profile").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", e.target);
+      try {
+        await api("/api/account", "PUT", { name: e.target.elements.name.value });
+        flash(msg, "Saved.", "ok");
+        await loadMe();
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+
+    $("#acct-password").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const f = e.target;
+      const msg = $(".t-msg", f);
+      try {
+        await api("/api/auth/password", "POST", { current: f.elements.current.value, password: f.elements.password.value });
+        f.reset();
+        flash(msg, "Saved. Every other device was signed out.", "ok");
+        await loadMe();
+        renderAccount();
+      } catch (err) {
+        if (err.data?.field && f.elements[err.data.field]) f.elements[err.data.field].focus();
+        flash(msg, err.message, "err");
+      }
+    });
+
+    $("#acct-signout").addEventListener("click", signOut);
+    $("#acct-signout-all").addEventListener("click", async () => {
+      if (!confirm("Sign out of Fare Radar on every device, including this one?")) return;
+      try { await api("/api/account/signout-all", "POST", {}); location.hash = "#browse"; location.reload(); }
+      catch (err) { flash($("#acct-data-msg"), err.message, "err"); }
+    });
+
+    const dlg = $("#delete-dlg");
+    $("#acct-delete").addEventListener("click", () => {
+      $("#delete-confirm").value = "";
+      $("#delete-pass").value = "";
+      flash($("#delete-msg"), "");
+      dlg.showModal();
+    });
+    $("#delete-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const confirmText = $("#delete-confirm").value.trim().toUpperCase();
+      if (confirmText !== "DELETE") return flash($("#delete-msg"), "Type DELETE to confirm.", "err");
+      try {
+        await api("/api/account/delete", "POST", { confirm: confirmText, password: $("#delete-pass").value });
+        dlg.close();
+        location.hash = "#browse";
+        location.reload();
+      } catch (err) { flash($("#delete-msg"), err.message, "err"); }
+    });
+  }
+
+  // ---------------- alerts page ----------------
+  async function renderAlerts() {
+    const locked = !isMember();
+    $("#alerts-locked").hidden = !locked;
+    $("#alerts-form").hidden = locked;
+    if (locked) return fillLock($("#alerts-locked"), "Deal alerts");
+    let acct;
+    try { acct = (await api("/api/account")).account; } catch { return; }
+    const f = $("#alerts-form");
+    const setSwitch = (on) => {
+      f.elements.on.checked = on;
+      $(".switch-label", f).textContent = on ? "On" : "Off";
+      f.classList.toggle("is-off", !on);
+    };
+    setSwitch(acct.alerts.on);
+    const origins = state.meta?.origins || [{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }];
+    $("#alerts-home").replaceChildren(...origins.map((o) =>
+      segButton(o.code, `${o.city} (${o.code})`, acct.alerts.origins.includes(o.code), "toggle")));
+    const cats = state.rules || state.meta?.rules;
+    $("#alerts-rules").textContent = cats
+      ? `${describeRules("international", cats.international)} ${describeRules("domestic", cats.domestic)}` : "";
+    $("#alerts-status").textContent = !acct.email_verified
+      ? "Confirm your email (see your Account page) to start getting alerts."
+      : !acct.alerts.on ? "Alerts are off." : acct.alerts.last_sent_at
+        ? `On. Last alert ${ago(acct.alerts.last_sent_at)}.` : "On. You'll get an email the next time a fare fits your rules.";
+    f.onchange = (e) => { if (e.target.name === "on") setSwitch(e.target.checked); };
+  }
+
+  function wireAlerts() {
+    $("#alerts-home").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const on = b.getAttribute("aria-pressed") !== "true";
+      if (!on && !$$("#alerts-home button").some((x) => x !== b && x.getAttribute("aria-pressed") === "true")) return;
+      b.setAttribute("aria-pressed", String(on));
+    });
+    $("#alerts-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", e.target);
+      try {
+        await api("/api/account/alerts", "PUT", { on: e.target.elements.on.checked,
+          origins: $$("#alerts-home button[aria-pressed=true]").map((b) => b.dataset.value) });
+        flash(msg, e.target.elements.on.checked ? "Saved. Alerts are on." : "Saved. Alerts are off.", "ok");
+        renderAlerts();
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+  }
+
+  // ---------------- owners: traveler details ----------------
   function travelerForm(t) {
     const form = $("#traveler-tpl").content.firstElementChild.cloneNode(true);
     $(".t-name", form).textContent = `${title(t.name)}${t.is_you ? " (you)" : ""}`;
@@ -692,8 +1080,8 @@
     if (!t.is_you && !t.can_sign_in) {
       const note = document.createElement("p");
       note.className = "t-note";
-      note.innerHTML = `You can book for ${title(t.name)}. To let them sign in and book themselves, add their email `
-        + `as the <code>CONTACT_${t.name}_EMAIL</code> secret in Cloudflare.`;
+      note.append(`You can book for ${title(t.name)}. To let them sign in and book themselves, add their email as the `,
+        el("code", "", `CONTACT_${t.name}_EMAIL`), " secret in Cloudflare.");
       $(".t-head", form).after(note);
     }
     const uid = `t-${t.name.toLowerCase()}`;
@@ -740,73 +1128,8 @@
     return form;
   }
 
-  // ---------------- sign up ----------------
-  function wireSignup() {
-    const form = $("#signup-form");
-    const email = $("#email");
-    $("#home").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      const on = b.getAttribute("aria-pressed") !== "true";
-      const others = $$("#home button").filter((x) => x !== b && x.getAttribute("aria-pressed") === "true");
-      if (!on && !others.length) return; // at least one airport
-      b.setAttribute("aria-pressed", String(on));
-    });
-    for (const id of ["#dom", "#intl"]) {
-      const el = $(id);
-      el.addEventListener("input", () => { $(`${id}-out`).textContent = money(el.value); paintRange(el); });
-    }
-    email.addEventListener("input", () => email.removeAttribute("aria-invalid"));
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const msg = $("#form-msg");
-      msg.className = "form-msg";
-      if (!email.value || !email.checkValidity()) {
-        email.setAttribute("aria-invalid", "true");
-        msg.textContent = "That email address doesn't look complete.";
-        msg.classList.add("err");
-        email.focus();
-        return;
-      }
-      const btn = $("button[type=submit]", form);
-      btn.disabled = true;
-      btn.textContent = "Sending…";
-      try {
-        const r = await fetch("/api/subscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: email.value.trim(),
-            origins: $$("#home button[aria-pressed=true]").map((b) => b.dataset.value),
-            domestic_max: Number($("#dom").value),
-            international_max: Number($("#intl").value),
-            website: $("#website").value,
-          }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (data.ok) {
-          msg.textContent = data.status === "owner"
-            ? "You're one of this site's owners, so you already get every deal alert, with Buy buttons. Nothing to sign up for."
-            : data.status === "updated"
-            ? "Saved. Your airports and limits are updated."
-            : `Sent a confirmation link to ${email.value.trim()}. Alerts start once you tap it.`;
-          msg.classList.add("ok");
-        } else {
-          msg.textContent = data.error || "That didn't go through. Try again in a minute.";
-          msg.classList.add("err");
-        }
-      } catch {
-        msg.textContent = "Couldn't reach the server. Check your connection and try again.";
-        msg.classList.add("err");
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Send me deals";
-      }
-    });
-  }
-
-  // ---------------- logic panel ----------------
+  // ---------------- logic (members) ----------------
   // Mirrors settings.ts `describe` so the summary updates as you type.
   function describeRules(kind, c) {
     const label = kind === "domestic" ? "US trips" : "Trips abroad";
@@ -816,12 +1139,6 @@
       : `ping when a fare is under $${c.alert.under}`;
     return `${label}: show round trips leaving ${c.min_days_out} to ${c.max_days_out} days from now, `
       + `${c.min_trip_days} to ${c.max_trip_days} days long, under $${c.show_under}; ${ping}.`;
-  }
-
-  async function loadLogic() {
-    try { state.logic = await (await fetch("/api/logic", { credentials: "same-origin" })).json(); } catch { state.logic = null; }
-    renderColumnRules(state.logic);
-    return state.logic;
   }
 
   function readCat(sec) {
@@ -858,20 +1175,77 @@
     return sec;
   }
 
+
   async function renderLogic() {
-    const logic = await loadLogic();
-    if (!logic) { $("#logic-cats").textContent = "Couldn't load the rules. Refresh to try again."; return; }
-    const canEdit = !!logic.can_edit;
-    $("#logic-readonly").hidden = canEdit;
-    $("#logic-save").hidden = !canEdit;
-    $("#logic-reset").hidden = !canEdit || !logic.customized;
-    $("#logic-cats").replaceChildren(catForm("international", logic.categories.international, canEdit),
-      catForm("domestic", logic.categories.domestic, canEdit));
-    $("#logic-updated").textContent = logic.customized && logic.updated_at
-      ? `Last changed ${ago(logic.updated_at)} by ${title(logic.updated_by || "")}.`
-      : "Using the default rules.";
+    const locked = !isMember();
+    $("#logic-locked").hidden = !locked;
+    $("#logic-body").hidden = locked;
+    if (locked) return fillLock($("#logic-locked"), "Your own logic");
+    let data;
+    try { data = await api("/api/account/rules"); } catch (e) { $("#logic-cats").textContent = e.message; return; }
+    state.rules = data.categories;
+    renderColumnRules();
+    $("#logic-cats").replaceChildren(catForm("international", data.categories.international, true),
+      catForm("domestic", data.categories.domestic, true));
+    $("#logic-reset").hidden = !data.customized;
+    $("#logic-site").hidden = state.me.role !== "admin";
+    $("#logic-updated").textContent = data.customized ? "You're using your own rules." : "You're using the site defaults.";
     renderLearned();
   }
+
+  function showFieldErrors(fields) {
+    for (const [kind, errs] of Object.entries(fields || {})) {
+      const sec = $(`.logic-cat[data-kind="${kind}"]`);
+      for (const [k, v] of Object.entries(errs)) {
+        const err = $(`.f-err[data-for="${k}"]`, sec);
+        if (err) err.textContent = v;
+        $(`[name="${k}"]`, sec)?.setAttribute("aria-invalid", "true");
+      }
+    }
+  }
+
+  function wireLogic() {
+    const collect = () => {
+      $$("#logic-cats .f-err").forEach((x) => { x.textContent = ""; });
+      $$("#logic-cats [aria-invalid]").forEach((x) => x.removeAttribute("aria-invalid"));
+      const body = {};
+      $$("#logic-cats .logic-cat").forEach((sec) => { body[sec.dataset.kind] = readCat(sec); });
+      return body;
+    };
+    $("#logic-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $("#logic-msg");
+      flash(msg, "Saving…");
+      try {
+        const out = await api("/api/account/rules", "PUT", collect());
+        state.rules = out.categories;
+        flash(msg, "Saved. Your deals and alerts now follow these rules.", "ok");
+        $("#logic-reset").hidden = false;
+        $("#logic-updated").textContent = "You're using your own rules.";
+        renderColumnRules();
+        loadDeals();
+      } catch (err) { flash(msg, err.message, "err"); showFieldErrors(err.data?.fields); }
+    });
+    $("#logic-reset").addEventListener("click", async () => {
+      if (!confirm("Go back to the site's default rules?")) return;
+      try {
+        await api("/api/account/rules", "DELETE");
+        flash($("#logic-msg"), "Back to the site defaults.", "ok");
+        await renderLogic();
+        loadDeals();
+      } catch (err) { flash($("#logic-msg"), err.message, "err"); }
+    });
+    $("#logic-site").addEventListener("click", async () => {
+      if (!confirm("Make these the defaults for visitors and for members who haven't set their own rules? The hourly search uses them too.")) return;
+      try {
+        await api("/api/logic", "PUT", collect());
+        flash($("#logic-msg"), "Saved as the site defaults.", "ok");
+        await loadMeta();
+        renderColumnRules();
+      } catch (err) { flash($("#logic-msg"), err.message, "err"); showFieldErrors(err.data?.fields); }
+    });
+  }
+
 
   async function renderLearned() {
     let routes = [];
@@ -893,168 +1267,6 @@
       return li;
     }));
     $("#learned-empty").hidden = routes.length > 0;
-  }
-
-  function wireLogic() {
-    $("#logic-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const msg = $("#logic-msg");
-      msg.className = "t-msg";
-      msg.textContent = "Saving…";
-      $$("#logic-cats .f-err").forEach((x) => { x.textContent = ""; });
-      $$("#logic-cats [aria-invalid]").forEach((x) => x.removeAttribute("aria-invalid"));
-      const body = {};
-      $$("#logic-cats .logic-cat").forEach((sec) => { body[sec.dataset.kind] = readCat(sec); });
-      try {
-        const r = await fetch("/api/logic", { method: "PUT", credentials: "same-origin",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const data = await r.json().catch(() => ({}));
-        if (data.ok) {
-          msg.textContent = "Saved. New rules apply from the next search.";
-          msg.classList.add("ok");
-          await loadLogic();
-          $("#logic-reset").hidden = false;
-          $("#logic-updated").textContent = `Last changed just now by ${title(state.me.name || "")}.`;
-          loadDeals();
-        } else {
-          msg.textContent = data.error || "Couldn't save.";
-          msg.classList.add("err");
-          for (const [kind, errs] of Object.entries(data.fields || {})) {
-            const sec = $(`.logic-cat[data-kind="${kind}"]`);
-            for (const [k, v] of Object.entries(errs)) {
-              const err = $(`.f-err[data-for="${k}"]`, sec);
-              if (err) err.textContent = v;
-              $(`[name="${k}"]`, sec)?.setAttribute("aria-invalid", "true");
-            }
-          }
-        }
-      } catch {
-        msg.textContent = "Couldn't reach the server.";
-        msg.classList.add("err");
-      }
-    });
-    $("#logic-reset").addEventListener("click", async () => {
-      if (!confirm("Go back to the default rules?")) return;
-      await fetch("/api/logic/reset", { method: "POST", credentials: "same-origin" }).catch(() => {});
-      $("#logic-msg").textContent = "Back to the defaults.";
-      await renderLogic();
-      loadDeals();
-    });
-  }
-
-  // ---------------- member account ----------------
-  const flash = (el, text, kind) => { el.className = `t-msg${kind ? ` ${kind}` : ""}`; el.textContent = text; };
-
-  async function api(path, method = "GET", data) {
-    const r = await fetch(path, { method, credentials: "same-origin",
-      headers: data ? { "Content-Type": "application/json" } : {}, body: data ? JSON.stringify(data) : undefined });
-    const out = await r.json().catch(() => ({}));
-    if (r.status === 401) { state.me = { signed_in: false }; await loadMe(); }
-    if (!r.ok || out.ok === false) throw new Error(out.error || "That didn't go through. Try again.");
-    return out;
-  }
-
-  function setAlertSwitch(on) {
-    const box = $("#acct-alerts").elements.on;
-    box.checked = on;
-    $("#acct-alerts .switch-label").textContent = on ? "On" : "Off";
-    $("#acct-alerts").classList.toggle("is-off", !on);
-  }
-
-  function fillMember(a) {
-    $("#acct-email").textContent = a.email;
-    $("#acct-email-field").value = a.email;
-    $("#acct-profile").elements.name.value = a.name || "";
-    const al = a.alerts;
-    setAlertSwitch(al.on);
-    const origins = state.meta?.origins || [{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }];
-    $("#acct-home").replaceChildren(...origins.map((o) =>
-      segButton(o.code, `${o.city} (${o.code})`, al.origins.includes(o.code), "toggle")));
-    for (const [id, v, max] of [["#acct-dom", al.domestic_max, a.limits.domestic_max],
-      ["#acct-intl", al.international_max, a.limits.international_max]]) {
-      const el = $(id);
-      el.max = String(max);
-      el.value = String(v);
-      paintRange(el);
-      $(`${id}-out`).textContent = money(v);
-    }
-    $("#acct-alert-status").textContent = !al.on ? "Alerts are off. You won't get any deal emails."
-      : al.last_emailed_at ? `On. Last alert sent ${ago(al.last_emailed_at)}.`
-      : "On. You'll get an email the next time a fare beats your limit.";
-  }
-
-  async function renderMember() {
-    $("#acct-welcome").hidden = !state.welcome;
-    try { fillMember((await api("/api/account")).account); } catch (e) { flash($("#acct-data-msg"), e.message, "err"); }
-  }
-
-  function wireMember() {
-    $("#acct-profile").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const msg = $(".t-msg", e.target);
-      try {
-        const out = await api("/api/account", "PUT", { name: e.target.elements.name.value });
-        fillMember(out.account);
-        state.me.name = out.account.name || out.account.email.split("@")[0];
-        loadMe();
-        flash(msg, "Saved.", "ok");
-      } catch (err) { flash(msg, err.message, "err"); }
-    });
-
-    const alerts = $("#acct-alerts");
-    alerts.elements.on.addEventListener("change", (e) => setAlertSwitch(e.target.checked));
-    $("#acct-home").addEventListener("click", (e) => {
-      const b = e.target.closest("button");
-      if (!b) return;
-      const on = b.getAttribute("aria-pressed") !== "true";
-      if (!on && !$$("#acct-home button").some((x) => x !== b && x.getAttribute("aria-pressed") === "true")) return;
-      b.setAttribute("aria-pressed", String(on));
-    });
-    for (const id of ["#acct-dom", "#acct-intl"]) {
-      const el = $(id);
-      el.addEventListener("input", () => { $(`${id}-out`).textContent = money(el.value); paintRange(el); });
-    }
-    alerts.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const msg = $(".t-msg", alerts);
-      const body = { alerts: {
-        on: alerts.elements.on.checked,
-        origins: $$("#acct-home button[aria-pressed=true]").map((b) => b.dataset.value),
-        domestic_max: Number($("#acct-dom").value), international_max: Number($("#acct-intl").value),
-      } };
-      try {
-        fillMember((await api("/api/account", "PUT", body)).account);
-        flash(msg, body.alerts.on ? "Saved. Alerts are on." : "Saved. Alerts are off.", "ok");
-      } catch (err) { flash(msg, err.message, "err"); }
-    });
-
-    $("#acct-signout-all").addEventListener("click", async () => {
-      if (!confirm("Sign out of Fare Radar on every device, including this one?")) return;
-      try {
-        await api("/api/account/signout-all", "POST");
-        location.hash = "#browse";
-        location.reload();
-      } catch (err) { flash($("#acct-data-msg"), err.message, "err"); }
-    });
-
-    const dlg = $("#delete-dlg");
-    $("#acct-delete").addEventListener("click", () => {
-      $("#delete-confirm").value = "";
-      flash($("#delete-msg"), "");
-      dlg.showModal();
-    });
-    $("#delete-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const v = $("#delete-confirm").value.trim().toUpperCase();
-      if (v !== "DELETE") { flash($("#delete-msg"), "Type DELETE to confirm.", "err"); return; }
-      try {
-        await api("/api/account/delete", "POST", { confirm: v });
-        dlg.close();
-        state.me = { signed_in: false };
-        location.hash = "#browse";
-        location.reload();
-      } catch (err) { flash($("#delete-msg"), err.message, "err"); }
-    });
   }
 
   // ---------------- contact ----------------
@@ -1090,16 +1302,18 @@
     });
   }
 
+
   // ---------------- boot ----------------
   $("#year").textContent = new Date().getFullYear();
-  wireContact();
-  wireMember();
   wireRadio($('[data-filter="origin"]'), (v) => { state.origin = v; loadDeals(); });
   wireRadio($('[data-filter="sort"]'), (v) => { state.sort = v; loadDeals(); });
-  wireSignup();
-  route();
-  wireSearch();
-  wireAccount();
+  wireAuth();
+  wirePw();
+  wireAccountPage();
+  wireAlerts();
   wireLogic();
-  Promise.all([loadMeta(), loadMe(), loadLogic()]).then(() => Promise.all([loadDeals(), loadChecks()]));
+  wireSearch();
+  wireBooking();
+  wireContact();
+  Promise.all([loadMeta(), loadMe()]).then(() => { route(); loadDeals(); });
 })();

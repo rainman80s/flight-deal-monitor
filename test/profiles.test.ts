@@ -1,7 +1,7 @@
 /** Account page: traveler profiles are validated, encrypted at rest, and used for booking. */
 import { describe, expect, it } from "vitest";
 import { handle } from "../src/app";
-import { sessionCookie } from "../src/auth";
+import { adminCookie } from "./helpers";
 import { contactByName } from "../src/config";
 import { loadAllTravelers, ProfileStore, validateProfile } from "../src/profiles";
 import { setup, TRAVELERS } from "./helpers";
@@ -96,13 +96,13 @@ describe("profile endpoints", () => {
     const s = site();
     expect((await s.call("GET", "/api/profiles")).status).toBe(401);
     expect((await s.call("PUT", "/api/profiles/RAN", good)).status).toBe(401);
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    const cookie = await adminCookie(s.cfg);
     expect((await s.call("PUT", "/api/profiles/RAN", good, { Cookie: cookie, Origin: "https://evil.example" })).status).toBe(403);
   });
 
   it("save, list (passport masked), field errors, unknown traveler", async () => {
     const s = site();
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    const cookie = await adminCookie(s.cfg);
     const h = { Cookie: cookie };
     const bad = await s.call("PUT", "/api/profiles/RAN", { ...good, born_on: "" }, h);
     expect(bad.status).toBe(400);

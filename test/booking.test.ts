@@ -236,7 +236,7 @@ describe("admin", () => {
       { headers: auth ? { Authorization: auth } : {} }), a.deps);
     expect((await req()).status).toBe(401);
     expect((await req("Bearer wrong")).status).toBe(401);
-    expect((await req("Bearer admin_secret")).status).toBe(200);
+    expect((await req("Bearer admin_secret_token_for_tests")).status).toBe(200);
   });
 });
 

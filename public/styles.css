@@ -684,3 +684,90 @@ select, .num, .f input, .f select, #signin-form input, .book-form input[type="da
 .signup-member b { color: var(--fg); }
 .signup-hint { margin-top: 14px !important; }
 @media (max-width: 600px) { .acct-card { padding: 18px 16px; } .data-actions .btn { flex: 1 1 100%; } }
+
+/* =====================================================================
+   Accounts, paywall, deal details
+   ===================================================================== */
+
+/* deal rows are buttons that open the detail card */
+.deal-row { padding: 0; }
+.dr-open {
+  all: unset; box-sizing: border-box; display: flex; justify-content: space-between; gap: 12px; width: 100%;
+  padding: 12px 18px; cursor: pointer; color: inherit; font: inherit;
+}
+.dr-open:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 12px; }
+.dr-open .dr-main, .dr-open .dr-side { display: flex; flex-direction: column; }
+.dr-open .dr-route { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dr-open .dr-when { font-size: 14px; color: var(--fg-2); margin-top: 2px; }
+.dr-open .dr-usual { font-size: 13px; color: var(--fg-3); margin-top: 2px; }
+.dr-side { align-items: flex-end; justify-content: space-between; gap: 6px; flex: none; }
+.dr-more { font-size: 13px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+.deal-row:hover .dr-more { text-decoration: underline; text-underline-offset: 3px; }
+
+/* columns: 10 visible, the rest scroll inside the card */
+.col-title { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.col-count { font-size: 13px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.deal-list.scrolls { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .25) transparent; }
+.deal-list:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.col-more { margin: 0; padding: 9px 18px; font-size: 13px; font-weight: 600; color: var(--fg-3); text-align: center;
+  border-top: 1px solid var(--hair); background: rgba(0, 0, 0, .12); }
+.col-more::after { content: " ↓"; }
+.col-more.done { opacity: .5; }
+
+/* one deal, at a glance */
+.deal-sheet { width: min(560px, calc(100% - 24px)); }
+.eyebrow { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.deal-sheet h2 { font-family: var(--display); font-weight: 400; font-size: 34px; line-height: 1.1; margin: 0 40px 2px 0; }
+.deal-codes { margin: 0 0 14px; font-family: var(--mono); font-size: 14px; color: var(--fg-3); }
+.deal-price { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.deal-price b { font-size: 46px; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.deal-price span { color: var(--fg-3); font-size: 14px; }
+.why-pill { margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft);
+  border: 1px solid rgba(246, 180, 67, .35); color: var(--fg); font-weight: 600; font-size: 15px; }
+.deal-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 0 0 12px;
+  border-radius: 14px; overflow: hidden; background: var(--hair); border: 1px solid var(--hair); }
+.deal-facts div { background: rgba(12, 27, 33, .9); padding: 10px 12px; min-width: 0; }
+.deal-facts dt { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+.deal-facts dd { margin: 2px 0 0; font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
+.deal-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 8px; }
+@media (max-width: 520px) { .deal-facts { grid-template-columns: 1fr 1fr; } .deal-actions .btn { flex: 1 1 100%; } }
+
+/* paywall */
+.locked {
+  margin: 8px 0 16px; padding: 22px 24px; border-radius: 20px; max-width: 640px;
+  background: linear-gradient(rgba(246, 180, 67, .10), rgba(246, 180, 67, .04)), var(--surface);
+  -webkit-backdrop-filter: blur(26px); backdrop-filter: blur(26px);
+  border: 1px solid rgba(246, 180, 67, .35);
+}
+.locked h3 { margin: 0 0 6px; font-size: 19px; display: flex; align-items: center; gap: 8px; }
+.locked h3::before { content: ""; width: 16px; height: 16px; flex: none; background: var(--accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17 9V7a5 5 0 0 0-10 0v2H5v13h14V9h-2zm-8-2a3 3 0 0 1 6 0v2H9V7z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M17 9V7a5 5 0 0 0-10 0v2H5v13h14V9h-2zm-8-2a3 3 0 0 1 6 0v2H9V7z'/%3E%3C/svg%3E") center / contain no-repeat; }
+.locked p { margin: 0 0 14px; color: var(--fg-2); }
+.search .locked { margin-top: 4px; }
+
+/* auth dialog */
+.auth-tabs { margin: 4px 0 16px; }
+.auth-tabs button[aria-selected="true"] { background: rgba(255, 255, 255, .2); color: var(--fg); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.oauth { display: grid; gap: 10px; margin-bottom: 4px; }
+.oauth-btn { width: 100%; background: #fff; color: #1f1f1f; border: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+.oauth-btn.apple { background: #000; color: #fff; border: 1px solid rgba(255, 255, 255, .25); }
+.oauth-btn:hover { filter: brightness(.96); }
+.or { display: flex; align-items: center; gap: 10px; margin: 8px 0 6px; color: var(--fg-3); font-size: 13px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--hair); }
+#auth-form, #pw-form { display: grid; gap: 12px; }
+#auth-form .t-actions, #pw-form .t-actions { margin-top: 4px; }
+.linkish { all: unset; cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 550; }
+.linkish:hover { text-decoration: underline; text-underline-offset: 3px; }
+.linkish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.f input[type="password"] { letter-spacing: .04em; }
+.form-msg:empty { display: none; }
+
+/* membership card */
+.pill { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 4px 10px;
+  border-radius: 999px; background: rgba(255, 255, 255, .12); color: var(--fg-2); margin-bottom: 12px; }
+.pill[data-kind="member"], .pill[data-kind="admin"] { background: var(--accent-soft); color: var(--accent); }
+.perks { margin: 0 0 14px; padding-left: 20px; color: var(--fg-2); }
+.perks li { margin-bottom: 4px; }
+.rules-line { font-size: 14px; }

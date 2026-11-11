@@ -1,7 +1,7 @@
 /** Logic panel rules, per-city "usual price" learning, and the settings API. */
 import { describe, expect, it } from "vitest";
 import { handle } from "../src/app";
-import { sessionCookie } from "../src/auth";
+import { adminCookie, sessionFor } from "./helpers";
 import { pingReason, PriceHistory, summarize } from "../src/baselines";
 import { contactByName } from "../src/config";
 import type { Fare } from "../src/models";
@@ -12,6 +12,7 @@ import { makeCfg, setup } from "./helpers";
 
 const TODAY = "2026-11-09";
 const NOON = new Date("2026-11-09T20:00:00Z");
+const later = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 const fare = (dest: string, price: number, depart: string, ret: string, over: Partial<Fare> = {}): Fare => ({
   provider: "ignav", origin: "SEA", destination: dest, departDate: depart, returnDate: ret, price, currency: "USD",
   airlines: ["AS"], outboundStops: 0, returnStops: 0, offerId: null, bookingUrl: null, isFake: false, ...over,
@@ -98,7 +99,8 @@ describe("runs with the new rules", () => {
       fare("NRT", 480, "2026-12-03", "2026-12-10"),   // international under $500: ping
       fare("CDG", 520, "2026-12-03", "2026-12-10"),   // over $500: hidden
     ] };
-    const r = await runCycle(cfg, store, p, notifier, NOON);
+    await sessionFor(cfg, { role: "admin", contact: "RAN", email: "ran@example.com" }); // the owner's account gets the alert
+    const r = await runCycle(cfg, store, p, notifier, NOON, true);
     expect(r.shown).toBe(3);
     expect(r.deals.map((d) => d.destination).sort()).toEqual(["JFK", "NRT"]);
     const jfk = r.deals.find((d) => d.destination === "JFK")!;
@@ -133,15 +135,19 @@ describe("logic API", () => {
     return { ...ctx, call };
   }
 
-  it("anyone can read; only a signed-in owner can save, and saved rules apply", async () => {
+  it("site defaults: members can read them, only admins can change them, and they apply", async () => {
     const s = site();
-    const read = await s.call("GET", "/api/logic");
+    expect((await s.call("GET", "/api/logic")).status).toBe(401);
+    const free = (await sessionFor(s.cfg)).cookie;
+    expect((await s.call("GET", "/api/logic", undefined, { Cookie: free })).status).toBe(402);
+    const member = (await sessionFor(s.cfg, { entitled: true })).cookie;
+    const read = await s.call("GET", "/api/logic", undefined, { Cookie: member });
     expect(read.body).toMatchObject({ can_edit: false, customized: false });
     const cats = read.body.categories as Record<string, ReturnType<typeof toRaw>>;
     const next = { ...cats, international: { ...cats.international, min_days_out: 14, show_under: 600,
       alert: { ...cats.international.alert, under: 450 } } };
-    expect((await s.call("PUT", "/api/logic", next)).status).toBe(401);
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    expect((await s.call("PUT", "/api/logic", next, { Cookie: member })).status).toBe(403);
+    const cookie = await adminCookie(s.cfg);
     expect((await s.call("PUT", "/api/logic", next, { Cookie: cookie, Origin: "https://evil.example" })).status).toBe(403);
     const saved = await s.call("PUT", "/api/logic", next, { Cookie: cookie });
     expect(saved.body.ok).toBe(true);
@@ -155,17 +161,58 @@ describe("logic API", () => {
     expect(bad.status).toBe(400);
     expect((bad.body.fields as Record<string, Record<string, string>>).domestic).toHaveProperty("max_trip_days");
 
+    expect((await s.call("POST", "/api/logic/reset", {}, { Cookie: member })).status).toBe(403);
     expect((await s.call("POST", "/api/logic/reset", {}, { Cookie: cookie })).body.ok).toBe(true);
     const cfg2 = makeCfg({ cats: defaultCategories() }, s.cfg.env);
     await applySettings(cfg2);
     expect(cfg2.cats.international.minDaysOut).toBe(20);
   });
 
+  it("personal rules change only that member's view, and need a membership", async () => {
+    const s = site();
+    const free = (await sessionFor(s.cfg)).cookie;
+    expect((await s.call("GET", "/api/account/rules", undefined, { Cookie: free })).status).toBe(402);
+    const a = (await sessionFor(s.cfg, { entitled: true })).cookie;
+    const b = (await sessionFor(s.cfg, { entitled: true })).cookie;
+    const mine = await s.call("GET", "/api/account/rules", undefined, { Cookie: a });
+    expect(mine.body.customized).toBe(false);
+    const cats = mine.body.categories as Record<string, ReturnType<typeof toRaw>>;
+    const next = { ...cats, domestic: { ...cats.domestic, show_under: 120, alert: { ...cats.domestic.alert, under: 90 } } };
+    const saved = await s.call("PUT", "/api/account/rules", next, { Cookie: a });
+    expect(saved.body).toMatchObject({ ok: true, customized: true });
+    expect((saved.body.categories as typeof cats).domestic.show_under).toBe(120);
+    // B and the site are untouched.
+    expect(((await s.call("GET", "/api/account/rules", undefined, { Cookie: b })).body.categories as typeof cats).domestic.show_under).toBe(200);
+    const cfg = makeCfg({ cats: defaultCategories() }, s.cfg.env);
+    await applySettings(cfg);
+    expect(cfg.cats.domestic.showUnder).toBe(200);
+    // Bad values are rejected per field; resetting goes back to the site defaults.
+    const bad = await s.call("PUT", "/api/account/rules", { ...next, domestic: { ...next.domestic, min_days_out: 999 } }, { Cookie: a });
+    expect(bad.status).toBe(400);
+    const reset = await s.call("DELETE", "/api/account/rules", undefined, { Cookie: a });
+    expect(reset.body.customized).toBe(false);
+  });
+
+  it("a member's deal list follows their own rules", async () => {
+    const s = site();
+    await s.store.addDeal({ ...fare("LAX", 150, later(20), later(27)), kind: "domestic" });
+    await s.store.addDeal({ ...fare("LAS", 95, later(20), later(27)), kind: "domestic" });
+    const deals = async (headers = {}) => ((await s.call("GET", "/api/deals?kind=domestic", undefined, headers)).body.deals as { destination: string }[])
+      .map((d) => d.destination).sort();
+    expect(await deals()).toEqual(["LAS", "LAX"]);
+    const a = (await sessionFor(s.cfg, { entitled: true })).cookie;
+    const cats = (await s.call("GET", "/api/account/rules", undefined, { Cookie: a })).body.categories as Record<string, ReturnType<typeof toRaw>>;
+    await s.call("PUT", "/api/account/rules", { ...cats, domestic: { ...cats.domestic, show_under: 100, alert: { ...cats.domestic.alert, under: 100 } } }, { Cookie: a });
+    expect(await deals({ Cookie: a })).toEqual(["LAS"]);
+    expect(await deals()).toEqual(["LAS", "LAX"]); // visitors still see the site's view
+  });
+
   it("baselines endpoint lists what's been learned", async () => {
     const s = site();
     await new PriceHistory(s.cfg.env.DB).recordCalendar("SEA", "LAX", 7,
       [{ d: "2026-12-01", r: null, p: 120 }, { d: "2026-12-02", r: null, p: 180 }], "calendar");
-    const r = await s.call("GET", "/api/baselines");
+    expect((await s.call("GET", "/api/baselines")).status).toBe(401);
+    const r = await s.call("GET", "/api/baselines", undefined, { Cookie: (await sessionFor(s.cfg, { entitled: true })).cookie });
     expect((r.body.routes as Record<string, unknown>[])[0]).toMatchObject({ origin: "SEA", destination: "LAX",
       destination_city: "Los Angeles", kind: "domestic", samples: 2, median: 150 });
   });

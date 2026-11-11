@@ -7,7 +7,9 @@ import { actionUrl } from "../src/links";
 import type { BookingProvider, Fare } from "../src/models";
 import { runCycle } from "../src/monitor";
 import { ResendEmailer } from "../src/notify";
-import { setup, testEnv } from "./helpers";
+import { unsubscribeLink } from "../src/alerts";
+import { UserStore } from "../src/users";
+import { sessionFor, setup, testEnv } from "./helpers";
 
 const NOON = new Date("2026-11-05T20:00:00Z");
 
@@ -43,12 +45,13 @@ function harness(overrides = {}) {
 }
 
 describe("email alerts", () => {
-  it("emails only contacts with an address, with working signed links", async () => {
+  it("owners' accounts get the Buy/Skip version with working signed links", async () => {
     const h = harness({ dryRun: false });
-    const r = await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, NOON);
+    await sessionFor(h.cfg, { role: "admin", contact: "RAN", email: "ran@example.com" });
+    const r = await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, NOON, true);
     expect(r.deals).toHaveLength(1);
     const emails = h.notifier.sent.filter((s) => s.kind === "email");
-    expect(emails.map((e) => e.to)).toEqual(["ran@example.com"]); // Brock has no email set
+    expect(emails.map((e) => e.to)).toEqual(["ran@example.com"]);
     expect(h.notifier.sent.some((s) => s.kind !== "email")).toBe(false); // no texts/calls by default
     const { subject, html, text } = emails[0].email!;
     expect(subject).toContain("Seattle → Los Angeles $90");
@@ -58,10 +61,58 @@ describe("email alerts", () => {
     expect((await h.go(buy)).status).toBe(200);
   });
 
-  it("fake fares are labelled in email", async () => {
+  it("fake fares are never emailed to anyone", async () => {
     const h = harness({ dryRun: false });
-    await runCycle(h.cfg, h.store, { name: "f", search: async () => [{ ...fare(), isFake: true }] }, h.notifier, NOON);
-    expect(h.notifier.sent[0].email!.subject).toMatch(/^\[FAKE TEST FARE\]/);
+    await sessionFor(h.cfg, { role: "admin", contact: "RAN", email: "ran@example.com" });
+    await runCycle(h.cfg, h.store, { name: "f", search: async () => [{ ...fare(), isFake: true }] }, h.notifier, NOON, true);
+    expect(h.notifier.sent.filter((s) => s.kind === "email")).toHaveLength(0);
+  });
+
+  it("only members with a live membership, a confirmed email and alerts on get alerts", async () => {
+    const h = harness({ dryRun: false });
+    const paid = await sessionFor(h.cfg, { entitled: true, email: "paid@example.com" });
+    await sessionFor(h.cfg, { email: "free@example.com" });
+    await sessionFor(h.cfg, { entitled: true, verified: false, email: "unverified@example.com" });
+    const off = await sessionFor(h.cfg, { entitled: true, email: "off@example.com" });
+    await UserStore.for(h.cfg).setAlerts(off.user.id, false, ["SEA", "PDX"]);
+    const pdxOnly = await sessionFor(h.cfg, { entitled: true, email: "pdx@example.com" });
+    await UserStore.for(h.cfg).setAlerts(pdxOnly.user.id, true, ["PDX"]);
+    await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, NOON, true);
+    const emails = h.notifier.sent.filter((s) => s.kind === "email");
+    expect(emails.map((e) => e.to)).toEqual(["paid@example.com"]);
+    const m = emails[0].email!;
+    expect(m.html).not.toContain(">Buy</a>"); // members book on the airline / Google Flights
+    expect(m.headers!["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+    expect(m.html).toContain(`/u/unsubscribe?u=${paid.user.id}&amp;t=`);
+
+    // The same trip isn't sent again on the next run.
+    await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, new Date(NOON.getTime() + 25 * 3600e3), true);
+    expect(h.notifier.sent.filter((s) => s.kind === "email")).toHaveLength(1);
+  });
+
+  it("each member is judged by their own rules", async () => {
+    const h = harness({ dryRun: false });
+    const strict = await sessionFor(h.cfg, { entitled: true, email: "strict@example.com" });
+    const raw = { min_days_out: 30, max_days_out: 240, min_trip_days: 2, max_trip_days: 14, show_under: 100,
+      alert: { mode: "under", under: 60, drop_percent: 30, min_samples: 8 } };
+    await UserStore.for(h.cfg).setRules(strict.user.id, { domestic: raw, international: { ...raw, show_under: 300, alert: { ...raw.alert, under: 300 } } });
+    await sessionFor(h.cfg, { entitled: true, email: "easy@example.com" });
+    await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare("LAX", 90)] }, h.notifier, NOON, true);
+    expect(h.notifier.sent.filter((s) => s.kind === "email").map((e) => e.to)).toEqual(["easy@example.com"]);
+  });
+
+  it("the unsubscribe link turns alerts off, and a tampered one doesn't", async () => {
+    const h = harness({ dryRun: false });
+    const m = await sessionFor(h.cfg, { entitled: true });
+    const link = new URL(await unsubscribeLink(h.cfg, m.user.id));
+    const bad = await h.go(`${link.origin}${link.pathname}?u=${m.user.id}&t=nope`, { method: "POST" });
+    expect(bad.status).toBe(400);
+    expect((await h.go(link.toString())).body).toContain("Stop deal alerts?"); // GET only asks
+    expect((await UserStore.for(h.cfg).byId(m.user.id))!.alertsOn).toBe(true);
+    const r = await h.go(link.toString(), { method: "POST", body: "List-Unsubscribe=One-Click",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+    expect(r.status).toBe(200);
+    expect((await UserStore.for(h.cfg).byId(m.user.id))!.alertsOn).toBe(false);
   });
 });
 

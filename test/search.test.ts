@@ -1,11 +1,11 @@
-/** On-site route search and "recently checked": caching and request limits. */
+/** On-site route search (members only) and background checks: caching and request limits. */
 import { describe, expect, it } from "vitest";
 import { handle } from "../src/app";
 import { Budget } from "../src/budget";
 import { CheckStore } from "../src/checks";
 import { IgnavProvider } from "../src/ignav";
 import { runCycle } from "../src/monitor";
-import { setup } from "./helpers";
+import { sessionFor, setup } from "./helpers";
 
 const BASE = "https://flights.example.com";
 const nextMonth = (() => {
@@ -34,9 +34,12 @@ function harness(opts: { fail?: boolean; daily?: number } = {}) {
   const budget = new Budget(ctx.cfg.env.DB, "ignav", opts.daily ?? 45, 950);
   const provider = new IgnavProvider("k", "economy", 1, null, fetcher, budget, 2);
   const deps = { ...ctx, fareProvider: () => provider, background: () => {} };
-  const search = async (body: Record<string, unknown>, ip = "1.1.1.1") => {
+  let cookie: string | null = null;
+  const search = async (body: Record<string, unknown>, ip = "1.1.1.1", as: "member" | "free" | "none" = "member") => {
+    cookie ??= (await sessionFor(ctx.cfg, { entitled: true })).cookie;
+    const auth = as === "member" ? { Cookie: cookie } : as === "free" ? { Cookie: (await sessionFor(ctx.cfg)).cookie } : {};
     const res = await handle(new Request(`${BASE}/api/search`, { method: "POST", body: JSON.stringify(body),
-      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip } }), deps);
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip, Origin: BASE, ...auth } }), deps);
     return { status: res.status, body: await res.json() as Record<string, unknown> };
   };
   return { ...ctx, calls, search, budget, deps, provider };
@@ -105,17 +108,27 @@ describe("route search", () => {
   });
 });
 
-describe("recently checked", () => {
-  it("background scans are saved and listed with the cheapest fare", async () => {
+describe("route search paywall", () => {
+  it("visitors and free accounts can't search, and spend nothing trying", async () => {
+    const h = harness();
+    const none = await h.search(q, "1.1.1.1", "none");
+    expect(none.status).toBe(401);
+    const free = await h.search(q, "1.1.1.1", "free");
+    expect(free.status).toBe(402);
+    expect(free.body.code).toBe("subscription_required");
+    expect(h.calls).toHaveLength(0);
+    expect((await h.budget.usage()).today).toBe(0);
+  });
+});
+
+describe("background checks", () => {
+  it("are saved with the cheapest fare, separately from site searches", async () => {
     const h = harness();
     h.cfg.calendarPerRun = 1;
     await runCycle(h.cfg, h.store, h.provider, h.notifier, new Date("2026-11-05T20:00:00Z"));
-    const res = await handle(new Request(`${BASE}/api/checks`), h.deps);
-    const checks = (await res.json() as { checks: Record<string, unknown>[] }).checks;
+    const checks = await new CheckStore(h.cfg.env.DB).recent(10);
     expect(checks).toHaveLength(1);
-    expect(checks[0]).toMatchObject({ origin: "SEA", cheapest: 200, stay_days: 4, window_start: "2026-12-05",
-      window_end: "2027-01-04", limit: expect.any(Number) });
-    // Site searches aren't listed as background checks.
+    expect(checks[0]).toMatchObject({ origin: "SEA", cheapest: 200, stay_days: 4, window_start: "2026-12-05" });
     await h.search(q);
     expect(await new CheckStore(h.cfg.env.DB).count()).toBe(1);
   });

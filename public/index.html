@@ -25,29 +25,100 @@
     </div>
   </header>
 
-  <!-- sign in (owners only) -->
-  <dialog id="signin-dlg" class="sheet glass" aria-labelledby="signin-title">
+  <!-- sign in / create account / forgot / reset -->
+  <dialog id="auth-dlg" class="sheet glass" aria-labelledby="auth-title">
     <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
-    <h2 id="signin-title">Sign in or create an account</h2>
-    <p class="muted-p">Enter your email and we'll send you a link. No password needed. New here? The link creates
-      your account.</p>
-    <form id="signin-form" novalidate>
-      <label class="field-label" for="signin-email">Email</label>
-      <input id="signin-email" type="email" autocomplete="email" inputmode="email" required>
-      <button class="btn primary" type="submit">Email me a link</button>
-      <p id="signin-msg" class="form-msg" role="status" aria-live="polite"></p>
+    <h2 id="auth-title">Sign in</h2>
+    <div class="seg wide auth-tabs" role="tablist" aria-label="Sign in or create an account">
+      <button type="button" role="tab" data-mode="signin" aria-selected="true">Sign in</button>
+      <button type="button" role="tab" data-mode="signup" aria-selected="false">Create account</button>
+    </div>
+
+    <div class="oauth" id="oauth-buttons" hidden>
+      <a class="btn oauth-btn" id="oauth-google" href="/api/auth/oauth/google/start" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.6 3.9-5.4 3.9-3.3 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.5 14.6 2.5 12 2.5 6.8 2.5 2.6 6.7 2.6 12s4.2 9.5 9.4 9.5c5.4 0 9-3.8 9-9.2 0-.6-.1-1.1-.2-1.6H12z"/></svg>
+        Continue with Google</a>
+      <a class="btn oauth-btn apple" id="oauth-apple" href="/api/auth/oauth/apple/start" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18"><path fill="currentColor" d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.5-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.5-1-2.5-4zM14 5.4c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4z"/></svg>
+        Continue with Apple</a>
+      <p class="or"><span>or with email</span></p>
+    </div>
+
+    <form id="auth-form" novalidate>
+      <label class="f auth-name"><span class="field-label">Name (optional)</span>
+        <input name="name" autocomplete="name" maxlength="60"></label>
+      <label class="f"><span class="field-label">Email</span>
+        <input name="email" type="email" autocomplete="email" inputmode="email" required maxlength="320"></label>
+      <label class="f auth-pass"><span class="field-label">Password</span>
+        <input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+      <p class="fine auth-hint" hidden>At least 10 characters. A few unrelated words make a strong one.</p>
+      <div class="t-actions">
+        <button class="btn primary" type="submit" id="auth-submit">Sign in</button>
+        <button class="linkish" type="button" id="auth-forgot">Forgot password?</button>
+      </div>
+      <p class="form-msg" id="auth-msg" role="status" aria-live="polite"></p>
+      <p class="fine auth-legal" hidden>By creating an account you agree to the <a href="#terms" data-close>terms</a> and
+        <a href="#privacy" data-close>privacy policy</a>.</p>
     </form>
+  </dialog>
+
+  <!-- forced password change (starting passwords) -->
+  <dialog id="pw-dlg" class="sheet glass" aria-labelledby="pw-title">
+    <h2 id="pw-title">Choose a new password</h2>
+    <p class="muted-p">You signed in with a starting password. Pick your own before continuing; it keeps your
+      account and payments safe.</p>
+    <form id="pw-form" novalidate>
+      <label class="f"><span class="field-label">Current password</span>
+        <input name="current" type="password" autocomplete="current-password" required></label>
+      <label class="f"><span class="field-label">New password</span>
+        <input name="password" type="password" autocomplete="new-password" required minlength="10"></label>
+      <label class="f"><span class="field-label">New password again</span>
+        <input name="again" type="password" autocomplete="new-password" required minlength="10"></label>
+      <p class="fine">At least 10 characters. A few unrelated words make a strong one.</p>
+      <div class="t-actions">
+        <button class="btn primary" type="submit">Save password</button>
+        <button class="linkish" type="button" id="pw-signout">Sign out</button>
+      </div>
+      <p class="form-msg" id="pw-msg" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <!-- one deal, at a glance -->
+  <dialog id="deal-dlg" class="sheet glass wide deal-sheet" aria-labelledby="deal-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <p class="eyebrow" id="deal-kind"></p>
+    <h2 id="deal-title"></h2>
+    <p class="deal-codes" id="deal-codes"></p>
+    <div class="deal-price"><b id="deal-price"></b><span>round trip, per person</span></div>
+    <p class="why-pill" id="deal-why" hidden></p>
+    <dl class="deal-facts">
+      <div><dt>Leave</dt><dd id="deal-depart"></dd></div>
+      <div><dt>Return</dt><dd id="deal-return"></dd></div>
+      <div><dt>Trip</dt><dd id="deal-days"></dd></div>
+      <div><dt>Airline</dt><dd id="deal-airline"></dd></div>
+      <div><dt>Stops</dt><dd id="deal-stops"></dd></div>
+      <div><dt>Usual price</dt><dd id="deal-usual"></dd></div>
+    </dl>
+    <p class="fine" id="deal-note"></p>
+    <div class="deal-actions">
+      <a class="btn primary" id="deal-airline-btn" target="_blank" rel="noopener noreferrer" hidden></a>
+      <a class="btn glass-btn" id="deal-google-btn" target="_blank" rel="noopener noreferrer">See it on Google Flights</a>
+      <button type="button" class="btn buy" id="deal-buy" hidden>Buy</button>
+    </div>
+    <p class="fine">Found <span id="deal-found"></span>. Prices change quickly; check the fare before you pay.</p>
   </dialog>
 
   <!-- delete account -->
   <dialog id="delete-dlg" class="sheet glass" aria-labelledby="delete-title">
     <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
     <h2 id="delete-title">Delete your account?</h2>
-    <p class="muted-p">This permanently deletes your account and your alert settings, and stops all emails. It can't
-      be undone. You can always sign up again later.</p>
+    <p class="muted-p">This permanently deletes your account, rules and alert history, cancels your membership
+      right away and stops all emails. It can't be undone.</p>
     <form id="delete-form" novalidate>
-      <label class="field-label" for="delete-confirm">Type DELETE to confirm</label>
-      <input id="delete-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <label class="f" id="delete-pass-wrap"><span class="field-label">Your password</span>
+        <input id="delete-pass" type="password" autocomplete="current-password"></label>
+      <label class="f"><span class="field-label">Type DELETE to confirm</span>
+        <input id="delete-confirm" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
       <div class="t-actions">
         <button class="btn danger" type="submit">Delete my account</button>
         <span class="t-msg" id="delete-msg" role="status" aria-live="polite"></span>
@@ -112,23 +183,25 @@
       <div class="deal-cols" id="board">
         <section class="deal-col" aria-labelledby="col-intl-title">
           <header class="col-head">
-            <h3 id="col-intl-title">International</h3>
+            <div class="col-title"><h3 id="col-intl-title">International</h3><span class="col-count" id="count-intl"></span></div>
             <p class="col-rule" id="rule-intl"></p>
           </header>
-          <ol class="deal-list" id="rows-intl" aria-labelledby="col-intl-title"></ol>
+          <ol class="deal-list" id="rows-intl" aria-labelledby="col-intl-title" tabindex="0"></ol>
+          <p class="col-more" aria-hidden="true" hidden></p>
           <p class="empty" id="empty-intl" hidden></p>
         </section>
         <section class="deal-col" aria-labelledby="col-dom-title">
           <header class="col-head">
-            <h3 id="col-dom-title">Domestic</h3>
+            <div class="col-title"><h3 id="col-dom-title">Domestic</h3><span class="col-count" id="count-dom"></span></div>
             <p class="col-rule" id="rule-dom"></p>
           </header>
-          <ol class="deal-list" id="rows-dom" aria-labelledby="col-dom-title"></ol>
+          <ol class="deal-list" id="rows-dom" aria-labelledby="col-dom-title" tabindex="0"></ol>
+          <p class="col-more" aria-hidden="true" hidden></p>
           <p class="empty" id="empty-dom" hidden></p>
         </section>
       </div>
-      <p class="fine legend"><span class="ping-dot" aria-hidden="true"></span> Pinged: good enough to alert you.
-        Others are under the show limit but normal for that route. <a href="#logic">Change the logic</a></p>
+      <p class="fine legend"><span class="ping-dot" aria-hidden="true"></span> Worth an alert by the rules shown above.
+        Tap any deal for the details. <span id="rules-whose"></span> <a href="#logic">Set your own rules</a></p>
 
     </div>
 
@@ -137,7 +210,8 @@
       <p class="section-sub">Prices every departure date in a month for one trip length. Results from the last
         <span id="cache-hours">12</span> hours load instantly; a new check uses one of today's
         <span id="search-left">15</span> live searches.</p>
-      <form id="search-form" class="search-form" novalidate>
+      <div class="locked" id="search-locked" hidden></div>
+      <form id="search-form" class="search-form" novalidate hidden>
         <label class="pick"><span class="field-label">From</span><select id="s-from" required></select></label>
         <label class="pick grow"><span class="field-label">To</span><select id="s-to" required></select></label>
         <label class="pick"><span class="field-label">Leaving in</span><select id="s-month" required></select></label>
@@ -151,64 +225,33 @@
         <p class="sub" id="s-foot"></p>
       </div>
     </section>
-
-    <div class="page">
-      <h2 class="section-title" id="checks-title">Recently checked</h2>
-      <p class="section-sub">The cheapest round trip each background check found, whether or not it beat the limit.</p>
-      <div class="board checks" id="checks-board">
-        <div class="board-head" aria-hidden="true">
-          <span>Route</span><span>Departures checked</span><span class="r">Cheapest found</span><span class="r">Limit</span><span class="r">Checked</span>
-        </div>
-        <ol id="checks" class="rows" aria-labelledby="checks-title"></ol>
-        <p id="checks-empty" class="empty" hidden>No checks yet. The first one runs within the hour.</p>
-      </div>
-    </div>
   </section>
 
-  <!-- ===================== Sign up ===================== -->
+  <!-- ===================== Alerts (members) ===================== -->
   <section id="view-signup" class="view page" aria-labelledby="signup-title" hidden>
     <div class="signup">
       <div class="signup-copy">
-        <h1 id="signup-title">Get one email when a fare beats your limit.</h1>
-        <p>Pick your airports and the most you'd pay. Around the clock we check round trips to
-          <span id="n-dest">54</span> cities. When one comes in under your number, you get an email with the
-          dates and a link to book it on the airline's site. No digests, no newsletters.</p>
+        <h1 id="signup-title">One email when a fare is worth it.</h1>
+        <p>Around the clock we check round trips from Seattle and Portland to <span id="n-dest">54</span> cities.
+          When one fits your rules, you get an email with the dates and a link to book. No digests, no newsletters.</p>
 
-        <div id="signup-member" class="acct-card signup-member" hidden>
-          <p>You're signed in as <b id="signup-member-email"></b>. Your airports, limits and alerts are on your
-            account page.</p>
-          <a class="btn primary" href="#account">Manage my alerts</a>
-        </div>
-        <p class="fine signup-hint" id="signup-hint">Already have an account? <a href="#account">Sign in</a> to
-          manage your alerts.</p>
+        <div class="locked" id="alerts-locked" hidden></div>
 
-        <form id="signup-form" class="form" novalidate>
-          <label class="field-label" for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" required>
-
+        <form class="acct-card" id="alerts-form" novalidate hidden>
+          <div class="card-head">
+            <h2>Your deal alerts</h2>
+            <label class="switch"><input type="checkbox" name="on" role="switch"><span aria-hidden="true"></span>
+              <b class="switch-label">Off</b></label>
+          </div>
           <fieldset class="field-set">
             <legend class="field-label">Flying out of</legend>
-            <div class="seg wide" id="home" role="group"></div>
+            <div class="seg wide" id="alerts-home" role="group"></div>
           </fieldset>
-
-          <div class="limits">
-            <label class="range">
-              <span class="field-label">US trips under <output id="dom-out" for="dom">$100</output></span>
-              <input id="dom" name="domestic_max" type="range" min="20" max="100" step="5" value="100">
-            </label>
-            <label class="range">
-              <span class="field-label">Trips abroad under <output id="intl-out" for="intl">$300</output></span>
-              <input id="intl" name="international_max" type="range" min="50" max="300" step="10" value="300">
-            </label>
-          </div>
-
-          <div class="hp" aria-hidden="true">
-            <label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off">
-          </div>
-
-          <button class="btn primary" type="submit">Send me deals</button>
-          <p id="form-msg" class="form-msg" role="status" aria-live="polite"></p>
-          <p class="fine">We email once to confirm. Every alert has a one-tap unsubscribe link.</p>
+          <p class="muted-p rules-line" id="alerts-rules"></p>
+          <p class="fine" id="alerts-status"></p>
+          <div class="t-actions"><button class="btn primary" type="submit">Save alerts</button>
+            <a class="btn glass-btn" href="#logic">Change my rules</a>
+            <span class="t-msg" role="status" aria-live="polite"></span></div>
         </form>
       </div>
 
@@ -223,7 +266,7 @@
             <p class="pv-route" id="pv-route">Seattle → Honolulu</p>
             <p class="pv-price"><span id="pv-price">$62</span> round trip</p>
             <p class="pv-dates" id="pv-dates">Fri Feb 19 → Wed Feb 24 · 5 days · nonstop</p>
-            <span class="pv-btn">Book on the airline's site</span>
+            <span class="pv-btn">See it and book</span>
             <p class="pv-fine">Prices move fast; check before you book. Unsubscribe</p>
           </div>
         </div>
@@ -231,33 +274,38 @@
     </div>
   </section>
 
-  <!-- ===================== Logic ===================== -->
+  <!-- ===================== Logic (members) ===================== -->
   <section id="view-logic" class="view page" aria-labelledby="logic-title" hidden>
     <div class="logic">
-      <h1 id="logic-title">Logic</h1>
-      <p class="lead-p">How Fare Radar decides what shows up on the site and when it pings you. Changes apply
-        from the next search, within the hour.</p>
-      <p id="logic-readonly" class="setup-note" hidden>You're viewing the current rules.
-        <a href="#account">Sign in</a> to change them.</p>
-      <form id="logic-form" novalidate>
-        <div class="logic-cols" id="logic-cats"></div>
-        <div class="t-actions logic-actions">
-          <button class="btn primary" type="submit" id="logic-save">Save changes</button>
-          <button class="btn glass-btn" type="button" id="logic-reset">Reset to defaults</button>
-          <span class="t-msg" id="logic-msg" role="status" aria-live="polite"></span>
-        </div>
-        <p class="fine" id="logic-updated"></p>
-      </form>
+      <h1 id="logic-title">Your logic</h1>
+      <p class="lead-p">Decide which fares show up for you and which ones are worth an email. These rules are yours
+        alone: changing them doesn't change anyone else's view.</p>
+      <div class="locked" id="logic-locked" hidden></div>
 
-      <h2 class="section-title" id="learned-title">What it has learned</h2>
-      <p class="section-sub">Usual round-trip prices per route from the last 60 days of checks. "Below usual" pings
-        compare against the typical (middle) price. A route needs enough prices before it's judged this way.</p>
-      <div class="board learned">
-        <div class="board-head" aria-hidden="true">
-          <span>Route</span><span class="r">Usual range</span><span class="r">Typical</span><span class="r">Prices seen</span>
+      <div id="logic-body" hidden>
+        <form id="logic-form" novalidate>
+          <div class="logic-cols" id="logic-cats"></div>
+          <div class="t-actions logic-actions">
+            <button class="btn primary" type="submit" id="logic-save">Save my rules</button>
+            <button class="btn glass-btn" type="button" id="logic-reset">Use the site defaults</button>
+            <button class="btn glass-btn" type="button" id="logic-site" hidden>Make these the site defaults</button>
+            <span class="t-msg" id="logic-msg" role="status" aria-live="polite"></span>
+          </div>
+          <p class="fine" id="logic-updated"></p>
+          <p class="fine">Your rules pick from the fares our hourly search finds; they can't make it search more
+            routes or dates.</p>
+        </form>
+
+        <h2 class="section-title" id="learned-title">Usual prices we've learned</h2>
+        <p class="section-sub">Typical round-trip prices per route from the last 60 days of checks. "Below usual"
+          alerts compare against the typical (middle) price once a route has enough prices.</p>
+        <div class="board learned">
+          <div class="board-head" aria-hidden="true">
+            <span>Route</span><span class="r">Usual range</span><span class="r">Typical</span><span class="r">Prices seen</span>
+          </div>
+          <ol class="rows" id="learned" aria-labelledby="learned-title"></ol>
+          <p class="empty" id="learned-empty" hidden>Nothing yet. Routes fill in as the hourly search runs.</p>
         </div>
-        <ol class="rows" id="learned" aria-labelledby="learned-title"></ol>
-        <p class="empty" id="learned-empty" hidden>Nothing yet. Every search adds prices; routes fill in over the next few days.</p>
       </div>
     </div>
   </section>
@@ -266,76 +314,81 @@
   <section id="view-account" class="view page" aria-labelledby="account-title" hidden>
     <div class="account">
       <h1 id="account-title">Account</h1>
+
       <div id="acct-signed-out" hidden>
-        <p class="lead-p">Sign in or create a free account to choose your airports and price limits and manage your
-          deal alerts. No password, just a link by email.</p>
-        <button type="button" class="btn primary" id="acct-signin">Sign in or sign up</button>
+        <p class="lead-p">Create a free account, then become a member ($8/month) for deal alerts, your own rules and
+          route search.</p>
+        <div class="t-actions">
+          <button type="button" class="btn primary" data-auth="signup">Create an account</button>
+          <button type="button" class="btn glass-btn" data-auth="signin">Sign in</button>
+        </div>
       </div>
+
       <div id="acct-signed-in" hidden>
+        <p class="welcome-note" id="acct-note" hidden></p>
+
+        <section class="acct-card" aria-labelledby="mem-title">
+          <div class="card-head"><h2 id="mem-title">Membership</h2><span class="pill" id="mem-pill"></span></div>
+          <p class="muted-p" id="mem-text"></p>
+          <ul class="perks" id="mem-perks">
+            <li>Deal alerts by email, judged by your own rules</li>
+            <li>Your own logic: timing, trip length, price limits, "below usual" alerts</li>
+            <li>Check any route across a whole month of dates</li>
+          </ul>
+          <div class="t-actions">
+            <button type="button" class="btn primary" id="mem-subscribe" hidden>Become a member · $8/month</button>
+            <button type="button" class="btn glass-btn" id="mem-manage" hidden>Manage billing</button>
+            <span class="t-msg" id="mem-msg" role="status" aria-live="polite"></span>
+          </div>
+          <p class="fine" id="mem-fine">Payments are handled by Stripe. Card details never touch this site. Cancel any time.</p>
+        </section>
+
+        <form class="acct-card" id="acct-profile" novalidate>
+          <h2>Profile</h2>
+          <div class="t-grid">
+            <label class="f"><span class="field-label">Email</span>
+              <input id="acct-email" type="email" readonly></label>
+            <label class="f"><span class="field-label">Name (optional)</span>
+              <input name="name" autocomplete="name" maxlength="60" placeholder="What should we call you?"></label>
+          </div>
+          <p class="fine" id="acct-verify-line"></p>
+          <div class="t-actions"><button class="btn primary" type="submit">Save</button>
+            <span class="t-msg" role="status" aria-live="polite"></span></div>
+        </form>
+
+        <form class="acct-card" id="acct-password" novalidate>
+          <h2>Password</h2>
+          <p class="fine" id="acct-methods"></p>
+          <div class="t-grid">
+            <label class="f" id="pw-current-wrap"><span class="field-label">Current password</span>
+              <input name="current" type="password" autocomplete="current-password"></label>
+            <label class="f"><span class="field-label">New password</span>
+              <input name="password" type="password" autocomplete="new-password" minlength="10"
+                aria-describedby="pw-rules"></label>
+          </div>
+          <p class="fine" id="pw-rules">At least 10 characters. A few unrelated words make a strong one.</p>
+          <div class="t-actions"><button class="btn primary" type="submit">Change password</button>
+            <span class="t-msg" role="status" aria-live="polite"></span></div>
+        </form>
+
         <!-- owners: traveler details for booking -->
         <div id="acct-owner" hidden>
-          <p class="lead-p">Signed in as <b id="acct-name"></b>. The details below are what airlines get when you book,
-            so names must match the ID each person flies with. They're stored encrypted.</p>
+          <h2 class="section-title">Traveler details for booking</h2>
+          <p class="section-sub">What airlines get when you book, so names must match each person's ID. Stored encrypted.</p>
           <div id="acct-list" class="acct-list"></div>
         </div>
 
-        <!-- members: profile, alerts, data -->
-        <div id="acct-member" hidden>
-          <p class="welcome-note" id="acct-welcome" hidden>Welcome to Fare Radar. Your account is ready. Set your
-            airports and limits below and turn on deal alerts.</p>
-          <p class="lead-p">Signed in as <b id="acct-email"></b>.</p>
-
-          <form class="acct-card" id="acct-profile" novalidate>
-            <h2>Profile</h2>
-            <div class="t-grid">
-              <label class="f"><span class="field-label">Email</span>
-                <input id="acct-email-field" type="email" readonly aria-describedby="acct-email-help"></label>
-              <label class="f"><span class="field-label">Name (optional)</span>
-                <input name="name" autocomplete="name" maxlength="60" placeholder="What should we call you?"></label>
-            </div>
-            <p class="fine" id="acct-email-help">Your email is how you sign in. To use a different one, create a new
-              account with it and delete this one.</p>
-            <div class="t-actions"><button class="btn primary" type="submit">Save</button>
-              <span class="t-msg" role="status" aria-live="polite"></span></div>
-          </form>
-
-          <form class="acct-card" id="acct-alerts" novalidate>
-            <div class="card-head">
-              <h2>Deal alerts</h2>
-              <label class="switch"><input type="checkbox" name="on" role="switch"><span aria-hidden="true"></span>
-                <b class="switch-label">Off</b></label>
-            </div>
-            <p class="muted-p">One email when a round trip beats your limit. Nothing else.</p>
-            <fieldset class="field-set">
-              <legend class="field-label">Flying out of</legend>
-              <div class="seg wide" id="acct-home" role="group"></div>
-            </fieldset>
-            <div class="limits">
-              <label class="range">
-                <span class="field-label">US trips under <output id="acct-dom-out" for="acct-dom">$200</output></span>
-                <input id="acct-dom" type="range" min="20" max="200" step="5" value="200">
-              </label>
-              <label class="range">
-                <span class="field-label">Trips abroad under <output id="acct-intl-out" for="acct-intl">$500</output></span>
-                <input id="acct-intl" type="range" min="50" max="500" step="10" value="500">
-              </label>
-            </div>
-            <p class="fine" id="acct-alert-status"></p>
-            <div class="t-actions"><button class="btn primary" type="submit">Save alerts</button>
-              <span class="t-msg" role="status" aria-live="polite"></span></div>
-          </form>
-
-          <section class="acct-card" aria-labelledby="acct-data-title">
-            <h2 id="acct-data-title">Your data</h2>
-            <p class="muted-p">See our <a href="#privacy">privacy policy</a> for what we keep and why.</p>
-            <div class="data-actions">
-              <a class="btn glass-btn" href="/api/account/export" download>Download my data</a>
-              <button type="button" class="btn glass-btn" id="acct-signout-all">Sign out of all devices</button>
-              <button type="button" class="btn danger" id="acct-delete">Delete my account</button>
-            </div>
-            <p class="t-msg" id="acct-data-msg" role="status" aria-live="polite"></p>
-          </section>
-        </div>
+        <section class="acct-card" aria-labelledby="acct-data-title">
+          <h2 id="acct-data-title">Your data and security</h2>
+          <p class="muted-p">Your email and name are stored encrypted, and your password only as a salted hash. See the
+            <a href="#privacy">privacy policy</a>.</p>
+          <div class="data-actions">
+            <a class="btn glass-btn" href="/api/account/export" download>Download my data</a>
+            <button type="button" class="btn glass-btn" id="acct-signout-all">Sign out of all devices</button>
+            <button type="button" class="btn danger" id="acct-delete">Delete my account</button>
+          </div>
+          <p class="t-msg" id="acct-data-msg" role="status" aria-live="polite"></p>
+        </section>
 
         <button type="button" class="btn glass-btn" id="acct-signout">Sign out</button>
       </div>
@@ -348,7 +401,7 @@
       <h1 id="about-title">About Fare Radar</h1>
       <p class="lead-p">Fare Radar is a small, independent site that watches round-trip fares out of Seattle (SEA) and
         Portland (PDX) around the clock and lists the cheap ones. It started as a tool for a couple of friends who
-        travel a lot. Anyone can browse the deals or get them by email, for free.</p>
+        travel a lot. Anyone can browse the deals for free; members get alerts, their own rules and route search.</p>
       <p class="callout-p">No ads, no affiliate links, no commissions. We don't earn anything when you book a flight.</p>
 
       <h2>Questions</h2>
@@ -361,22 +414,23 @@
       <details><summary>How do you decide what counts as a deal?</summary>
         <p>Each column has its own rules for how far out the trip leaves, how long it is and how cheap it has to be.
           For US trips we also learn each route's usual price and flag fares well below it.
-          The <a href="#logic">Logic page</a> lists the exact rules.</p></details>
+          The rules show under each column header, and members can set their own on the Logic page.</p></details>
       <details><summary>Can I book on this site?</summary>
-        <p>Booking here is limited to the site's owners. Everyone else books with the airline or through Google
-          Flights; every deal links there.</p></details>
-      <details><summary>How do deal alerts work?</summary>
-        <p><a href="#signup">Sign up</a> with your email, pick your airports and the most you'd pay. You confirm once,
-          then get an email only when a fare beats your limit. Confirming also gives you a free account, where you
-          can change your settings, pause alerts, download your data or delete everything. Every email has a
-          one-tap unsubscribe link.</p></details>
-      <details><summary>Do I need a password?</summary>
-        <p>No. To sign in, enter your email and tap the link we send. Each link works once, for 20 minutes.</p></details>
+        <p>You book with the airline or through Google Flights: open any deal and use the buttons there. (Booking
+          right here is limited to the site's owners for now.)</p></details>
+      <details><summary>What do members get?</summary>
+        <p>For $8 a month: deal alerts by email, judged by your own rules; your own logic (how far out, how long, how
+          cheap, and "well below the usual price" alerts), which changes only your view; and route search across a
+          whole month of dates. Anyone can browse the deals for free.</p></details>
+      <details><summary>How do I cancel?</summary>
+        <p>On your Account page, choose Manage billing, then cancel. You keep your membership until the end of the
+          month you've paid for. You can also delete your account, which cancels right away.</p></details>
+      <details><summary>How do I sign in?</summary>
+        <p>With your email and password, or with Google or Apple where offered. Forgot your password? Use "Forgot
+          password?" on the sign-in screen and we'll email a link that works once, for 30 minutes.</p></details>
       <details><summary>Which airports do you cover?</summary>
         <p>Departures from Seattle-Tacoma (SEA) and Portland (PDX) for now, to about 50 cities in the US and abroad.
           Prices are round trip, per person, economy, in US dollars.</p></details>
-      <details><summary>Does it cost anything?</summary>
-        <p>No. The site runs on free and low-cost services and isn't trying to make money.</p></details>
       <details><summary>Something's wrong or missing.</summary>
         <p><a href="#contact">Send us a note</a>. We read everything.</p></details>
     </article>
@@ -409,18 +463,20 @@
   <section id="view-privacy" class="view page" aria-labelledby="privacy-title" hidden>
     <article class="prose">
       <h1 id="privacy-title">Privacy policy</h1>
-      <p class="fine">Effective November 10, 2026</p>
+      <p class="fine">Effective November 11, 2026</p>
       <p class="callout-p">The short version: we collect as little as we can. No analytics, no ads, no tracking
         cookies, and we never sell or share your personal information.</p>
 
       <h2>What we collect</h2>
       <ul>
-        <li><b>Deal alerts.</b> Your email address, the airports you picked and your price limits, so we can email you
-          matching fares.</li>
+        <li><b>Your account.</b> Your email address, the name you give (if any), your password (only as a one-way
+          hash), whether you signed in with Google or Apple, and when you created the account and last signed in.</li>
+        <li><b>Your settings.</b> Your home airports, whether alerts are on, your own deal rules, and which deals we've
+          emailed you about, so we never send the same one twice.</li>
+        <li><b>Membership.</b> Your Stripe customer number and your membership status and renewal date. Stripe holds
+          the payment details.</li>
         <li><b>Contact form.</b> Your name if you give it, your email and your message. It's delivered to us by email
           and isn't stored on the site.</li>
-        <li><b>Accounts.</b> Your email address, the name you give (if any), and when you created the account and
-          last signed in. You can download everything or delete your account any time from the Account page.</li>
         <li><b>Owners' booking details.</b> Only the site's owners can book. The traveler details they save for
           that (names, dates of birth, contact details, passport details) are stored encrypted and used only to
           book their flights.</li>
@@ -440,14 +496,19 @@
       </ul>
 
       <h2>Cookies</h2>
-      <p>The site sets one cookie, <code>fr_session</code>, and only when you sign in. It keeps you signed in for
-        up to 30 days and is used for nothing else. Visitors who don't sign in get no cookies, which is why there's
-        no cookie banner.</p>
+      <p>The site sets a sign-in cookie, <code>__Host-fr_session</code>, only when you sign in. It keeps you signed in
+        for up to 30 days (or until 14 days of not visiting) and is used for nothing else. When you choose "Continue
+        with Google" or "Continue with Apple", a second cookie lasts 10 minutes to check the sign-in comes back to the
+        same browser. Visitors who don't sign in get no cookies, which is why there's no cookie banner.</p>
 
       <h2>Services that handle data for us</h2>
       <ul>
         <li><b>Cloudflare</b> hosts the site and its database. Like any web host, it sees visitors' IP addresses to
           deliver pages.</li>
+        <li><b>Stripe</b> handles membership payments. It receives your email and the card details you enter on
+          Stripe's own checkout page; we never see your card number.</li>
+        <li><b>Google</b> or <b>Apple</b>, only if you choose to sign in with them. They tell us your email address and
+          name, and we never get your password for those services.</li>
         <li><b>Resend</b> sends our emails.</li>
         <li><b>Duffel</b> and the airline receive traveler details when an owner books a flight.</li>
         <li><b>SerpApi</b> and <b>Ignav</b> answer our fare searches. They never receive any of your personal
@@ -455,12 +516,21 @@
       </ul>
       <p>Links to Google Flights and airline sites are covered by those companies' own privacy policies.</p>
 
-      <h2>How long we keep it</h2>
-      <p>Your account and alert settings stay until you delete them on the Account page, which removes them right
-        away. If you only unsubscribe from alerts, we keep your address marked "unsubscribed" so we never email you
-        again; delete your account or ask us to remove it completely. Sign-in links are kept only until they
-        expire. Owners' traveler details stay until they delete them.</p>
+      <h2>How we protect it</h2>
+      <ul>
+        <li>Your email address and name are encrypted in our database (AES-256). We find your account with a keyed,
+          one-way fingerprint of your email, not the address itself.</li>
+        <li>Passwords are never stored. We keep only a salted, slow hash (PBKDF2 with 100,000 rounds plus a server-side
+          secret), so even we can't see your password.</li>
+        <li>Sign-in sessions are random 256-bit values; the database holds only a fingerprint of each, and you can end
+          them all from your Account page. Repeated wrong passwords lock the account for a while.</li>
+        <li>The whole site runs over HTTPS and loads no third-party scripts.</li>
+      </ul>
 
+      <h2>How long we keep it</h2>
+      <p>Your account, rules and alert history stay until you delete your account on the Account page, which removes
+        them right away and cancels your membership. Stripe keeps payment records as the law requires. Sign-in sessions
+        end after 30 days and password-reset links after 30 minutes. Owners' traveler details stay until they delete them.</p>
       <h2>Your choices and rights</h2>
       <p>You can see, download, correct or delete the information we hold about you, wherever you live. That
         includes rights under California, Washington and EU/UK law. Most of it you can do yourself on the
@@ -480,7 +550,7 @@
   <section id="view-terms" class="view page" aria-labelledby="terms-title" hidden>
     <article class="prose">
       <h1 id="terms-title">Terms of use</h1>
-      <p class="fine">Effective November 10, 2026</p>
+      <p class="fine">Effective November 11, 2026</p>
       <p>By using Fare Radar you agree to these terms. They're written to be read, so please do.</p>
 
       <h2>What the site is</h2>
@@ -497,9 +567,20 @@
         limited to the site's owners. Those bookings go through Duffel and the airline. Changes, cancellations and
         refunds follow the airline's fare rules.</p>
 
-      <h2>Alerts</h2>
-      <p>Alerts are free and best effort. We may miss a deal, send one late, or stop the service at any time. You can
-        unsubscribe with one tap from any alert.</p>
+      <h2>Accounts</h2>
+      <p>Keep your password to yourself and use one you don't use elsewhere. You're responsible for what happens under
+        your account. Tell us right away if you think someone else got in. One account per person.</p>
+
+      <h2>Membership and billing</h2>
+      <p>Browsing the deals is free. Deal alerts, your own logic and route search are part of a membership, which
+        costs $8 per month (plus any sales tax) and renews automatically each month until you cancel. Stripe processes
+        payments; we never see or store your card number.</p>
+      <p>Cancel any time in Manage billing on your Account page. Your membership then runs to the end of the month
+        you've paid for and doesn't renew. Payments aren't refunded for partial months, except where the law requires
+        it. If a renewal payment fails, we keep your access for a short grace period while Stripe retries. If we change
+        the price, we'll email members at least 30 days before it applies, and you can cancel before then.</p>
+      <p>Alerts are best effort. We may miss a deal, send one late, or change or stop the service. If we stop it, we'll
+        refund any unused part of your current month.</p>
 
       <h2>Fair use</h2>
       <p>Please don't scrape the site, get around its search limits, try to break in, or use it to send spam. We may
@@ -626,16 +707,18 @@
 
   <template id="row-tpl">
     <li class="deal-row">
-      <div class="dr-main">
-        <p class="dr-route"><span class="codes"><b class="o"></b><span class="arrow">→</span><b class="d"></b></span>
-          <span class="city"></span></p>
-        <p class="dr-when"></p>
-        <p class="dr-usual"></p>
-      </div>
-      <div class="dr-side">
-        <span class="dr-price"></span>
-        <a class="btn glass-btn small" target="_blank" rel="noopener">Book</a>
-      </div>
+      <button type="button" class="dr-open">
+        <span class="dr-main">
+          <span class="dr-route"><span class="codes"><b class="o"></b><span class="arrow">→</span><b class="d"></b></span>
+            <span class="city"></span></span>
+          <span class="dr-when"></span>
+          <span class="dr-usual"></span>
+        </span>
+        <span class="dr-side">
+          <span class="dr-price"></span>
+          <span class="dr-more" aria-hidden="true">Details ›</span>
+        </span>
+      </button>
     </li>
   </template>
 

@@ -136,3 +136,18 @@ export function describe(kind: Kind, c: CatRules): string {
   return `${label}: show round trips leaving ${c.minDaysOut} to ${c.maxDaysOut} days from now, `
     + `${c.minTripDays} to ${c.maxTripDays} days long, under $${c.showUnder}; ${ping}.`;
 }
+
+/**
+ * A person's own rules (saved from their Logic page), falling back per category to the
+ * site defaults when they haven't customized it or a saved value no longer validates.
+ */
+export function personalCategories(cfg: Config, saved: unknown | null): Categories {
+  const out: Categories = { ...cfg.cats };
+  if (saved && typeof saved === "object") {
+    for (const k of ["domestic", "international"] as Kind[]) {
+      const v = validateCat((saved as Record<string, unknown>)[k]);
+      if (v.ok) out[k] = v.rules;
+    }
+  }
+  return out;
+}

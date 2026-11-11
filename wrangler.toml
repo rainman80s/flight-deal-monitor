@@ -35,10 +35,17 @@ enabled = true
 # Secrets (set with `npx wrangler secret put NAME`, never in this file):
 #   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER   optional, for sms/call
 #   RESEND_API_KEY             email alerts (resend.com)
-#   LINK_SECRET                any long random string; signs email Buy/Skip links
+#   LINK_SECRET                64+ random characters (openssl rand -hex 32). Encrypts emails, names and
+#                              traveler details, peppers passwords, signs links. NEVER rotate it casually:
+#                              stored data and passwords become unreadable.
 #   CONTACT_RAN_EMAIL, CONTACT_BROCK_EMAIL   where alerts go
 #   CONTACT_RAN_PHONE, CONTACT_BROCK_PHONE   only if alerts.channels has sms/call (Twilio)
 #   DUFFEL_ACCESS_TOKEN        duffel_test_... first
 #   TRAVELERS_JSON             passenger details, only needed for booking (see README)
 #   ADMIN_TOKEN                any long random string; protects /admin/*
-#   IGNAV_API_KEY              once the Ignav adapter exists
+#   ignav-key                  Ignav fare search
+#   serp-api                   SerpApi Google Travel Explore
+#   ADMIN_INITIAL_PASSWORD     starting password for the owners' admin accounts (they must change it at first sign-in)
+#   STRIPE_SECRET_KEY          sk_test_... first; then POST /admin/stripe/setup once (creates price, webhook, portal)
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET            optional: "Continue with Google"
+#   APPLE_CLIENT_ID, APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY   optional: "Continue with Apple"

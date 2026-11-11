@@ -147,17 +147,37 @@ Setup:
 - **`CONTACT_BROCK_EMAIL`** (optional secret) lets Brock sign in and book himself. You can
   book for him either way.
 
-## Website
+## Website, accounts and membership
 
-`public/` holds a small static site (no build step) bundled into the Worker:
+`public/` holds the static site (no build step), bundled into the Worker.
 
-- **Browse**: recent deals with filters (airport, domestic/international, max price, sort). A
-  banner says "Demo data" while fares come from the mock provider.
-- **Sign up**: email, home airports and price limits. A confirmation email (double opt-in)
-  activates alerts. Every alert has a one-tap unsubscribe. Subscribers get a booking link;
-  only the configured contacts get Buy buttons.
-- Until a sending domain is verified in Resend, Resend only delivers to the account
-  owner's address, so other people's confirmation emails fail with a clear message.
+**Free for everyone:** the two deal columns (10 shown, the rest scroll inside each card) and a
+detail card for every deal with dates, airline, stops, the route's usual price and buttons to the
+airline and Google Flights.
+
+**Members ($8/month, Stripe):** deal alerts by email, each person's own Logic (timing, trip length,
+price limits, "below usual" alerts; it changes only their view and their alerts), and route search.
+Anything that spends paid API requests on demand is members-only. Admins (the owners in
+`alerts.contacts`) always have full access, plus booking and editing the site-wide defaults.
+
+**Accounts** (`src/account.ts`, `src/users.ts`, `src/crypto.ts`, `src/auth.ts`, `src/oauth.ts`):
+
+- Email + password, or Google / Apple (offered only when their secrets are set).
+- Passwords: PBKDF2-SHA256 (100k rounds, per-user salt) over an HMAC pepper derived from `LINK_SECRET`.
+  Minimum 10 characters, common ones refused. 5 misses lock the account with growing delays.
+- Emails and names are AES-256-GCM encrypted; lookups use an HMAC "blind index" of the email.
+- Server-side sessions: `__Host-fr_session` cookie (Secure, HttpOnly, SameSite=Lax) holding a random
+  token; only its SHA-256 is stored. 30 days max, 14 days idle. Password change/reset signs out other devices.
+- Reset and verification links are single-use, short-lived and travel in the URL fragment.
+- Signing up with an owner's address gives a normal account until the inbox is verified.
+- Every response has a strict CSP (no third-party code), HSTS and frame-blocking; every state-changing
+  `/api` call must come from this site's Origin (except Stripe's signed webhook and Apple's state-checked return).
+- Owners' admin accounts are created by `ensureAdmins` (hourly, or `POST /admin/seed-admins`) with
+  `ADMIN_INITIAL_PASSWORD`, and must pick a new password at first sign-in.
+
+**Payments** (`src/billing.ts`): Stripe Checkout and the Stripe billing portal; card details never touch
+this site. Set `STRIPE_SECRET_KEY` (test key first), then call `POST /admin/stripe/setup` once: it creates
+the $8/month price, the webhook (signing secret stored encrypted) and the portal settings.
 
 ## Costs to know
 

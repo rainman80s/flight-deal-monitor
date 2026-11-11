@@ -1,11 +1,10 @@
-/** Owner sign-in and buying from the website: every refusal path, and the happy path. */
+/** Buying from the website: every refusal path, and the happy path. (Sign-in itself is in accounts.test.ts.) */
 import { describe, expect, it } from "vitest";
 import { handle } from "../src/app";
-import { currentUser, loginLink, sessionCookie, verifyLoginLink } from "../src/auth";
 import { contactByName } from "../src/config";
 import { DuffelProvider, type DuffelOffer, viewOffer } from "../src/duffel";
 import { bookOffer, type BookRequest } from "../src/purchase";
-import { setup, TRAVELERS } from "./helpers";
+import { adminCookie, setup, TRAVELERS } from "./helpers";
 
 const BASE = "https://flights.example.com";
 const later = (days: number) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
@@ -155,24 +154,6 @@ describe("offer view", () => {
   });
 });
 
-describe("sign-in", () => {
-  it("login links and sessions verify, and reject tampering and expiry", async () => {
-    const { cfg } = setup();
-    const ran = contactByName(cfg, "RAN")!;
-    const u = new URL(await loginLink(cfg, ran));
-    const [n, x, t] = ["n", "x", "t"].map((k) => u.searchParams.get(k)!);
-    expect(await verifyLoginLink(cfg, n, x, t)).toMatchObject({ name: "RAN" });
-    expect(await verifyLoginLink(cfg, "BROCK", x, t)).toBeNull();
-    expect(await verifyLoginLink(cfg, n, x, t, Date.now() + 21 * 60000)).toBeNull();
-
-    const cookie = (await sessionCookie(cfg, ran)).split(";")[0];
-    expect(cookie).toMatch(/^fr_session=RAN\./);
-    const r = (c: string) => new Request(BASE, { headers: { Cookie: c } });
-    expect(await currentUser(cfg, r(cookie))).toMatchObject({ name: "RAN" });
-    expect(await currentUser(cfg, r(cookie.replace("RAN.", "BROCK.")))).toBeNull();
-    expect(await currentUser(cfg, r(""))).toBeNull();
-  });
-});
 
 describe("booking endpoints", () => {
   function site(over = {}) {
@@ -190,7 +171,7 @@ describe("booking endpoints", () => {
   it("require sign-in and a same-origin request", async () => {
     const s = site();
     expect((await s.call("/api/offers", trip)).status).toBe(401);
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    const cookie = await adminCookie(s.cfg);
     expect((await s.call("/api/offers", trip, { Cookie: cookie, Origin: "https://evil.example" })).status).toBe(403);
     expect((await s.call("/api/book", { ...trip, offer_id: "off_1", expected_total: 100 },
       { Cookie: cookie, Origin: "https://evil.example" })).status).toBe(403);
@@ -199,7 +180,7 @@ describe("booking endpoints", () => {
   it("explain when Duffel isn't set up", async () => {
     const s = site();
     s.cfg.env.DUFFEL_ACCESS_TOKEN = undefined;
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    const cookie = await adminCookie(s.cfg);
     const r = await s.call("/api/offers", trip, { Cookie: cookie });
     expect(r.status).toBe(503);
     expect(r.body.error).toMatch(/DUFFEL_ACCESS_TOKEN/);
@@ -207,39 +188,10 @@ describe("booking endpoints", () => {
 
   it("validate dates and travelers", async () => {
     const s = site();
-    const cookie = (await sessionCookie(s.cfg, contactByName(s.cfg, "RAN")!)).split(";")[0];
+    const cookie = await adminCookie(s.cfg);
     for (const bad of [{ ...trip, return_date: trip.depart_date }, { ...trip, depart_date: "2020-01-01" },
       { ...trip, travelers: ["MALLORY"] }, { ...trip, travelers: [] }, { ...trip, origin: "JFK", destination: "LAX" }]) {
       expect((await s.call("/api/offers", bad, { Cookie: cookie })).status).toBe(400);
     }
-  });
-
-  it("login always gives the same answer", async () => {
-    const s = site();
-    const sent: string[] = [];
-    const real = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init: RequestInit) => {
-      sent.push(JSON.parse(init.body as string).to[0]);
-      return new Response(JSON.stringify({ id: "e1" }));
-    }) as typeof fetch;
-    let a, b;
-    try {
-      a = await s.call("/api/login", { email: "ran@example.com" });
-      b = await s.call("/api/login", { email: "stranger@example.com" });
-    } finally { globalThis.fetch = real; }
-    // Anyone can have an account now, so everyone gets a link, and the reply doesn't
-    // reveal which emails belong to owners.
-    expect(a.body).toEqual({ ok: true });
-    expect(b.body).toEqual({ ok: true });
-    expect(sent).toEqual(["ran@example.com", "stranger@example.com"]);
-  });
-
-  it("login reply is identical for owners and strangers even without email set up", async () => {
-    const s = site();
-    s.cfg.env.RESEND_API_KEY = undefined;
-    const a = await s.call("/api/login", { email: "ran@example.com" });
-    const b = await s.call("/api/login", { email: "stranger@example.com" });
-    expect(a.status).toBe(b.status);
-    expect(a.body).toEqual(b.body);
   });
 });

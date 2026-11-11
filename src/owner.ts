@@ -3,7 +3,7 @@
  * (Sign-in for everyone lives in account.ts.)
  *
  *   GET  /api/profiles, PUT/DELETE /api/profiles/:name   traveler details for booking
- *   POST /api/logout
+ *
  *   POST /api/offers      {origin, destination, depart_date, return_date, travelers[]}
  *   POST /api/book        {offer_id, travelers[], expected_total, origin, destination, depart_date, return_date}
  *
@@ -11,7 +11,7 @@
  * /api/book also require a signed-in contact.
  */
 import type { Deps } from "./app";
-import { clearCookie, currentUser, sameOrigin } from "./auth";
+import { currentUser, sameOrigin } from "./auth";
 import type { Config } from "./config";
 import { loadAllTravelers, ProfileStore, publicProfile, validateProfile } from "./profiles";
 import { daysBetween, utcDate } from "./dates";
@@ -90,11 +90,6 @@ export async function ownerRoute(req: Request, url: URL, deps: Deps): Promise<Re
     if (!v.ok) return json({ ok: false, error: "Check the highlighted fields.", fields: v.errors }, 400);
     await store.save(contact, v.profile, user.name);
     return json({ ok: true, profile: publicProfile(v.profile) });
-  }
-
-  if (p === "/api/logout" && req.method === "POST") {
-    if (!sameOrigin(cfg, req)) return json({ ok: false }, 403);
-    return json({ ok: true }, 200, { "Set-Cookie": clearCookie() });
   }
 
   if ((p === "/api/offers" || p === "/api/book") && req.method === "POST") {

@@ -29,11 +29,14 @@ import { frameFor } from "./email";
 import { escHtml, page } from "./html";
 import { actionUrl, verifyLink } from "./links";
 import { ignavBudget, makeExplore, serpapiBudget } from "./providers";
-import { accountRoute } from "./account";
+import { accountRoute, MUST_CHANGE_ALLOWED } from "./account";
+import { currentSession, sameOrigin } from "./auth";
+import { billingRoute, setupStripe } from "./billing";
+import { safeEqual } from "./crypto";
+import { ensureAdmins, UserStore } from "./users";
 import { ownerRoute } from "./owner";
 import { siteRoute } from "./site";
 import { staticFile } from "./static";
-import type { SubscriberStore } from "./subscribers";
 import { buyMeaning, city, dealEmail, destCity } from "./messages";
 import { type Notifier, ResendEmailer } from "./notify";
 import { gather, message, pause, redirect, say, twiml, validTwilioRequest } from "./twilio";
@@ -42,7 +45,6 @@ export interface Deps {
   cfg: Config;
   store: Store;
   notifier: Notifier;
-  subs?: SubscriberStore;
   fareProvider: () => FareProvider;
   bookingProvider?: BookingProvider;
   /** Run work after the response is sent (ctx.waitUntil in production). */
@@ -52,10 +54,57 @@ export interface Deps {
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data, null, 2), { status, headers: { "Content-Type": "application/json" } });
 
+/**
+ * Headers every response gets. The CSP allows only this site's own scripts, styles, images and
+ * fonts (no third-party code at all); inline styles are allowed for the small server-rendered pages.
+ */
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    + "img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self' https://appleid.apple.com; "
+    + "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
+};
+
+/** Cross-site POSTs these paths must accept: Stripe's webhook (signature-checked) and Apple's form_post return (state-checked). */
+const CROSS_SITE_OK = new Set(["/api/billing/webhook", "/api/auth/oauth/apple/callback"]);
+
 export async function handle(req: Request, deps: Deps): Promise<Response> {
+  let res: Response;
+  try {
+    res = await route(req, deps);
+  } catch (e) {
+    console.error("unhandled", new URL(req.url).pathname, (e as Error).message);
+    res = new Response(JSON.stringify({ ok: false, error: "Something went wrong on our side. Try again." }),
+      { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+  const out = new Response(res.body, res);
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) if (!out.headers.has(k)) out.headers.set(k, v);
+  return out;
+}
+
+async function route(req: Request, deps: Deps): Promise<Response> {
   const { cfg, store, notifier } = deps;
   const url = new URL(req.url);
   const path = url.pathname;
+
+  // Central CSRF guard: any state-changing API call must come from this site's own pages.
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+  if (unsafe && path.startsWith("/api/") && !CROSS_SITE_OK.has(path) && !sameOrigin(cfg, req)) {
+    return new Response(JSON.stringify({ ok: false, error: "Bad origin." }), { status: 403, headers: { "Content-Type": "application/json" } });
+  }
+  // Someone signed in with a starting password must change it before doing anything else.
+  if (path.startsWith("/api/") && !MUST_CHANGE_ALLOWED.has(path) && !CROSS_SITE_OK.has(path)) {
+    const s = await currentSession(cfg, req);
+    if (s?.user.mustChangePassword) {
+      return new Response(JSON.stringify({ ok: false, code: "must_change_password", error: "Change your password first." }),
+        { status: 403, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+    }
+  }
 
   if (path === "/health") {
     return json({ ok: true, dry_run: cfg.dryRun, booking_enabled: cfg.bookingEnabled,
@@ -68,7 +117,8 @@ export async function handle(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (path.startsWith("/api/") || path.startsWith("/u/")) {
-    const res = (await accountRoute(req, url, deps)) ?? (await ownerRoute(req, url, deps)) ?? (await siteRoute(req, url, deps));
+    const res = (await accountRoute(req, url, deps)) ?? (await billingRoute(req, url, deps))
+      ?? (await ownerRoute(req, url, deps)) ?? (await siteRoute(req, url, deps));
     if (res) return res;
   }
 
@@ -197,7 +247,7 @@ async function smsReply(deps: Deps, who: string, text: string,
 async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
   const { cfg, store, notifier } = deps;
   const token = cfg.env.ADMIN_TOKEN;
-  if (typeof token !== "string" || !token || req.headers.get("Authorization") !== `Bearer ${token}`) {
+  if (typeof token !== "string" || token.length < 16 || !safeEqual(req.headers.get("Authorization") ?? "", `Bearer ${token}`)) {
     return new Response("Unauthorized", { status: 401 });
   }
   if (url.pathname === "/admin/status" && req.method === "GET") {
@@ -205,11 +255,17 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
       serpapi_searches: await serpapiBudget(cfg).usage(), explore_enabled: !!makeExplore(cfg),
       deals: await store.recentDeals(20), bookings: await store.bookings(20) });
   }
+  if (url.pathname === "/admin/stripe/setup" && req.method === "POST") {
+    return json(await setupStripe(cfg));
+  }
+  if (url.pathname === "/admin/seed-admins" && req.method === "POST") {
+    return json({ created_or_reset: await ensureAdmins(cfg) });
+  }
   if (url.pathname === "/admin/run" && req.method === "POST") {
     // ?mode=explore forces a Google Explore run (one SerpApi search); ?mode=scan forces route checks.
     const mode = url.searchParams.get("mode");
     const explore = mode === "scan" ? undefined : makeExplore(cfg, mode === "explore" ? 1 : cfg.exploreEvery);
-    const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), deps.subs, explore);
+    const r = await runCycle(cfg, store, deps.fareProvider(), notifier, new Date(), true, explore);
     return json({ ...r, deals: r.deals.map((d) => `${d.code} ${d.origin}-${d.destination} $${d.price}`) });
   }
   if (url.pathname === "/admin/test-email" && req.method === "POST") {

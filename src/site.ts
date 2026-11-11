@@ -15,16 +15,19 @@ import { type CalendarDay, CheckStore } from "./checks";
 import { addDays, daysBetween, localParts, utcDate } from "./dates";
 import { rejectionReason } from "./rules";
 import { escHtml, page } from "./html";
-import { verifySubscriberToken } from "./links";
 import { IgnavProvider } from "./ignav";
 import { city, destCity, googleFlightsUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
-import { AccountStore } from "./accounts";
-import { currentSession, currentUser, memberSessionCookie, sameOrigin } from "./auth";
-import { PriceHistory } from "./baselines";
-import { defaultCategories, describe, loadSaved, resetCategories, saveCategories, toRaw, validateCat } from "./settings";
-import { confirmationEmail, EMAIL_RE, SubscriberStore } from "./subscribers";
+import { paywall } from "./account";
+import { verifyUnsubscribe } from "./alerts";
+import { currentSession, currentUser, sameOrigin } from "./auth";
+import { PRICE_CENTS, stripeEnabled } from "./billing";
+import { EMAIL_RE } from "./crypto";
+import { providersEnabled } from "./oauth";
+import { entitled, UserStore } from "./users";
+import { pingReason, PriceHistory } from "./baselines";
+import { defaultCategories, describe, loadSaved, personalCategories, resetCategories, saveCategories, toRaw, validateCat } from "./settings";
 
 const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), {
@@ -60,7 +63,6 @@ const intIn = (v: unknown, lo: number, hi: number): number | null => {
 
 export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Response | null> {
   const { cfg, store } = deps;
-  const subs = deps.subs ?? new SubscriberStore(cfg.env.DB);
   const p = url.pathname;
 
   if (p === "/api/meta" && req.method === "GET") {
@@ -71,7 +73,6 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       runs_per_day: cfg.runsPerDay,
       destinations: cfg.domestic.length + cfg.international.length,
       demo: cfg.dryRun || cfg.provider === "mock",
-      subscribers: (await subs.counts()).active,
       destination_list: [...cfg.domestic.map((c) => ({ code: c, city: city(c), kind: "domestic" })),
         ...cfg.international.map((c) => ({ code: c, city: city(c), kind: "international" }))],
       search: {
@@ -80,12 +81,11 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
         per_day: cfg.siteSearchesPerDay,
         cache_hours: cfg.searchCacheHours,
       },
-      checks_total: await new CheckStore(cfg.env.DB).count(),
-      cycle: Number(await store.getState("cycle") ?? 0),
+      auth: { providers: providersEnabled(cfg) },
+      rules: { domestic: toRaw(cfg.cats.domestic), international: toRaw(cfg.cats.international) },
+      billing: { enabled: stripeEnabled(cfg), price: `$${PRICE_CENTS / 100}/month` },
       last_checked_at: await store.getState("last_cycle_at"),
-      searches_per_cycle: cfg.searchesPerCycle,
-      routes: cfg.origins.length * (cfg.domestic.length + cfg.international.length),
-    });
+    }, 200, { "Cache-Control": "public, max-age=60" });
   }
 
   if (p === "/api/deals" && req.method === "GET") {
@@ -96,17 +96,33 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const sortParam = url.searchParams.get("sort");
     const sort = sortParam === "price" || sortParam === "value" ? sortParam : "recent";
     const demo = cfg.dryRun || cfg.provider === "mock";
-    // Once live search is on, old test fares disappear from the site.
-    // Only deals that still fit today's rules (the Logic panel can change them) and were seen in
-    // the last week; older prices have likely moved.
+
+    // Members see the deals through their own rules (which deals show, and which count as a ping).
+    // Visitors and members without a subscription see the site defaults.
+    const s = await currentSession(cfg, req);
+    const personal = s && entitled(s.user) && s.user.rules ? personalCategories(cfg, s.user.rules) : null;
+    const cats = personal ?? cfg.cats;
+    const view = { ...cfg, cats } as Config;
+    const baselines = personal ? new Map((await new PriceHistory(cfg.env.DB).all())
+      .map((b) => [`${b.origin}${b.destination}`, b])) : null;
+
+    // Only deals that still fit the rules and were seen in the last week; older prices have likely moved.
     const today = localParts(new Date(), cfg.timezone).date;
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const stillValid = (d: Deal) => d.found_at >= weekAgo.slice(0, 19) && !rejectionReason(cfg, {
+    const stillValid = (d: Deal) => d.found_at >= weekAgo.slice(0, 19) && !rejectionReason(view, {
       provider: d.provider, origin: d.origin, destination: d.destination, departDate: d.depart_date,
       returnDate: d.return_date, price: d.price, currency: d.currency, airlines: [], outboundStops: 0, returnStops: 0,
       offerId: null, bookingUrl: null, isFake: !!d.is_fake, kind: d.kind ?? undefined }, today);
-    let deals = (await store.recentDeals(400)).filter((d) => (demo || !d.is_fake) && stillValid(d))
-      .map((d) => publicDeal(cfg, d));
+    let deals = (await store.recentDeals(400)).filter((d) => (demo || !d.is_fake) && stillValid(d)).map((d) => {
+      const pd = publicDeal(cfg, d);
+      if (!personal) return pd;
+      const rule = cats[pd.kind].alert;
+      const b = baselines!.get(`${d.origin}${d.destination}`);
+      const base = b && b.samples >= rule.minSamples ? { ...b, pooled: false } : null;
+      const why = pingReason(d.price, rule, base);
+      return { ...pd, pinged: !!why, ping_reason: why,
+        typical: base ? { median: base.median, low: base.low, high: base.high } : pd.typical };
+    });
     if (cfg.origins.includes(origin)) deals = deals.filter((d) => d.origin === origin);
     if (kind === "domestic" || kind === "international") deals = deals.filter((d) => d.kind === kind);
     if (max) deals = deals.filter((d) => d.price <= max);
@@ -120,55 +136,9 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     });
     if (sort === "price") deals.sort((a, b) => a.price - b.price);
     // Best value: pinged first, then furthest below the route's usual price (or below the show limit).
-    const score = (d: ReturnType<typeof publicDeal>) => d.price / (d.typical?.median ?? cfg.cats[d.kind].showUnder);
+    const score = (d: ReturnType<typeof publicDeal>) => d.price / (d.typical?.median ?? cats[d.kind].showUnder);
     if (sort === "value") deals.sort((a, b) => Number(b.pinged) - Number(a.pinged) || score(a) - score(b));
-    return json({ deals: deals.slice(0, limit) }, 200, { "Cache-Control": "public, max-age=60" });
-  }
-
-  if (p === "/api/subscribe" && req.method === "POST") {
-    let body: Record<string, unknown>;
-    try { body = await req.json(); } catch { return json({ ok: false, error: "Bad request." }, 400); }
-    if (body.website) return json({ ok: true, status: "check_email" }); // honeypot: pretend success
-
-    const email = String(body.email ?? "").trim().toLowerCase();
-    if (!EMAIL_RE.test(email)) return json({ ok: false, error: "That email doesn't look right." }, 400);
-    // Owners already get every alert (with Buy/Skip) and are skipped as subscribers anyway.
-    if (cfg.contacts.some((c) => c.email && c.email.toLowerCase() === email)) return json({ ok: true, status: "owner" });
-    const origins = Array.isArray(body.origins)
-      ? [...new Set(body.origins.map((o) => String(o).toUpperCase()))].filter((o) => cfg.origins.includes(o))
-      : [];
-    if (!origins.length) return json({ ok: false, error: "Pick at least one home airport." }, 400);
-    const dom = intIn(body.domestic_max ?? cfg.domesticMaxPrice, 20, cfg.domesticMaxPrice);
-    const intl = intIn(body.international_max ?? cfg.internationalMaxPrice, 50, cfg.internationalMaxPrice);
-    if (dom === null || intl === null) {
-      return json({ ok: false, error: `Limits must be up to $${cfg.domesticMaxPrice} domestic `
-        + `and $${cfg.internationalMaxPrice} international.` }, 400);
-    }
-
-    // Signed in with this same email: it's already verified, so save straight to the account.
-    const session = await currentSession(cfg, req);
-    if (session?.kind === "member" && session.user.email === email) {
-      await subs.saveVerified(email, origins, dom, intl, true);
-      return json({ ok: true, status: "updated" });
-    }
-
-    const ip = await visitorTag(String(cfg.env.LINK_SECRET ?? ""), req.headers.get("CF-Connecting-IP") ?? "local");
-    if (await subs.throttled(ip)) return json({ ok: false, error: "Too many sign-ups. Try again in an hour." }, 429);
-
-    const s = await subs.upsert(email, origins, dom, intl);
-    if (s.status === "active") return json({ ok: true, status: "updated" });
-
-    const key = cfg.env.RESEND_API_KEY;
-    if (!key) return json({ ok: false, error: "Email isn't set up on this site yet." }, 503);
-    try {
-      await new ResendEmailer(key, String(cfg.env.EMAIL_FROM ?? cfg.emailFrom))
-        .send(s.email, await confirmationEmail(cfg, s));
-    } catch (e) {
-      console.error("confirmation email failed", e);
-      return json({ ok: false, error: "We couldn't send the confirmation email. The site may only be able to "
-        + "email its owner until a sending domain is set up." }, 502);
-    }
-    return json({ ok: true, status: "check_email" });
+    return json({ deals: deals.slice(0, limit), personal: !!personal }, 200, { "Cache-Control": "private, no-cache", Vary: "Cookie" });
   }
 
   // ---- Contact form: emails the owner, never shows their address ----
@@ -213,24 +183,25 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     return json({ ok: true });
   }
 
-  // ---- Logic panel ----
+  // ---- Logic: everyone's own rules live at /api/account/rules. These are the site defaults:
+  // what visitors see, what the hourly search uses, and what new members start from. Admins only.
   if (p === "/api/logic" && req.method === "GET") {
+    const s = await currentSession(cfg, req);
+    if (!s) return json({ ok: false, code: "sign_in_required", error: "Sign in to see the logic." }, 401);
+    if (!entitled(s.user)) return paywall();
     const saved = await loadSaved(cfg.env.DB);
-    const defs = defaultCategories();
-    const user = await currentUser(cfg, req);
     return json({
       categories: { domestic: toRaw(cfg.cats.domestic), international: toRaw(cfg.cats.international) },
-      defaults: { domestic: toRaw(defs.domestic), international: toRaw(defs.international) },
+      defaults: { domestic: toRaw(defaultCategories().domestic), international: toRaw(defaultCategories().international) },
       summaries: { domestic: describe("domestic", cfg.cats.domestic), international: describe("international", cfg.cats.international) },
       customized: Object.keys(saved.cats).length > 0, updated_at: saved.updated_at, updated_by: saved.updated_by,
-      can_edit: !!user,
+      can_edit: !!(await currentUser(cfg, req)),
     });
   }
 
   if (p === "/api/logic" && req.method === "PUT") {
-    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
     const user = await currentUser(cfg, req);
-    if (!user) return json({ ok: false, error: "Sign in to change the logic." }, 401);
+    if (!user) return json({ ok: false, error: "Only admins can change the site defaults." }, 403);
     let b: Record<string, unknown>;
     try { b = await req.json(); } catch { return json({ ok: false, error: "Bad request." }, 400); }
     const dom = validateCat(b.domestic), intl = validateCat(b.international);
@@ -245,71 +216,59 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
   }
 
   if (p === "/api/logic/reset" && req.method === "POST") {
-    if (!sameOrigin(cfg, req)) return json({ ok: false, error: "Bad origin." }, 403);
-    if (!(await currentUser(cfg, req))) return json({ ok: false, error: "Sign in to change the logic." }, 401);
+    if (!(await currentUser(cfg, req))) return json({ ok: false, error: "Only admins can change the site defaults." }, 403);
     await resetCategories(cfg.env.DB);
     return json({ ok: true });
   }
 
   if (p === "/api/baselines" && req.method === "GET") {
+    const s = await currentSession(cfg, req);
+    if (!s) return json({ ok: false, code: "sign_in_required", error: "Sign in first." }, 401);
+    if (!entitled(s.user)) return paywall();
     const rows = (await new PriceHistory(cfg.env.DB).all()).map((b) => ({
       ...b, destination_city: city(b.destination), kind: kindOf(cfg, b),
     }));
     rows.sort((a, b) => a.destination_city.localeCompare(b.destination_city) || a.origin.localeCompare(b.origin));
-    return json({ routes: rows }, 200, { "Cache-Control": "public, max-age=120" });
+    return json({ routes: rows }, 200, { "Cache-Control": "private, max-age=120" });
   }
 
-  if (p === "/api/checks" && req.method === "GET") {
-    const limit = intIn(url.searchParams.get("limit"), 1, 50) ?? 12;
-    const checks = (await new CheckStore(cfg.env.DB).recent(limit)).map((c) => ({
-      origin: c.origin, origin_city: city(c.origin), destination: c.destination, destination_city: city(c.destination),
-      kind: isDomestic(cfg, c.destination) ? "domestic" : "international",
-      window_start: c.window_start, window_end: addDays(c.window_start, c.window_days - 1), stay_days: c.stay_days,
-      cheapest: c.cheapest, cheapest_date: c.cheapest_date,
-      cheapest_return: c.cheapest_date ? addDays(c.cheapest_date, c.stay_days) : null,
-      limit: c.price_limit, checked_at: c.checked_at,
-    }));
-    return json({ checks }, 200, { "Cache-Control": "public, max-age=60" });
+  if (p === "/api/search" && req.method === "POST") {
+    const s = await currentSession(cfg, req);
+    if (!s) return json({ ok: false, code: "sign_in_required", error: "Sign in to check a route." }, 401);
+    if (!entitled(s.user)) return paywall();
+    return siteSearch(req, deps);
   }
 
-  if (p === "/api/search" && req.method === "POST") return siteSearch(req, deps);
+  // Free email sign-ups were replaced by member alerts.
+  if (p === "/api/subscribe") {
+    return json({ ok: false, code: "subscription_required",
+      error: "Deal alerts are part of a Fare Radar membership now. Create an account to get them." }, 410);
+  }
 
-  const sub = p.match(/^\/u\/(confirm|unsubscribe)$/);
-  if (sub && (req.method === "GET" || req.method === "POST")) {
-    const purpose = sub[1] as "confirm" | "unsubscribe";
-    // A POST is either our own form (id and t in the body) or a mail app's one-click
-    // unsubscribe (RFC 8058: body "List-Unsubscribe=One-Click", id and t in the URL).
+  // One-tap "stop alerts" from an email. GET shows a button; POST (the button, or a mail app's
+  // RFC 8058 one-click with "List-Unsubscribe=One-Click") turns alerts off.
+  if (p === "/u/unsubscribe" && (req.method === "GET" || req.method === "POST")) {
     const params = new URLSearchParams(url.searchParams);
     if (req.method === "POST") for (const [k, v] of new URLSearchParams(await req.text())) params.set(k, v);
-    const id = Number(params.get("id")), t = params.get("t") ?? "";
-    if (!(await verifySubscriberToken(cfg, id, purpose, t))) {
-      return page("Invalid link", "<h2>That link isn't valid.</h2><p class=muted>It may be incomplete or altered.</p>", 403);
+    const id = Number(params.get("u")), t = params.get("t") ?? "";
+    if (!(await verifyUnsubscribe(cfg, id, t))) {
+      return page("Link not valid", "<h2>That link isn't valid anymore.</h2><p>You can turn alerts off on your "
+        + "<a href=\"/#account\">Account page</a>.</p>", 400);
     }
-    const s = await subs.byId(id);
-    if (!s) return page("Not found", "<h2>We couldn't find that sign-up.</h2>", 404);
-    const hidden = `<input type=hidden name=id value="${s.id}"><input type=hidden name=t value="${escHtml(t)}">`;
-
     if (req.method === "GET") {
-      return purpose === "confirm"
-        ? page("Confirm alerts", `<h2>Confirm deal alerts</h2><p>For <b>${escHtml(s.email)}</b>.</p>`
-          + `<form method=post>${hidden}<button class=primary>Confirm</button></form>`)
-        : page("Unsubscribe", `<h2>Stop deal alerts?</h2><p>For <b>${escHtml(s.email)}</b>.</p>`
-          + `<form method=post>${hidden}<button class=skip>Unsubscribe</button></form>`);
+      return page("Stop alerts", "<h2>Stop deal alerts?</h2><p>You can turn them back on from your Account page.</p>"
+        + `<form method=post><input type=hidden name=u value="${id}"><input type=hidden name=t value="${escHtml(t)}">`
+        + "<button class=skip>Stop alerts</button></form>");
     }
-    if (purpose === "confirm") {
-      if (s.status === "unsubscribed") {
-        return page("Unsubscribed", "<h2>You're unsubscribed.</h2><p>Sign up again on the site to restart alerts.</p>");
-      }
-      await subs.setStatus(s.id, "active");
-      // Tapping the link proved they own the email, so this is also their account. Sign them in.
-      const { user } = await new AccountStore(cfg.env.DB).signIn(s.email);
-      return page("You're in", "<h2>You're in ✈︎</h2><p>We'll email you when a fare beats your limits.</p>"
-        + "<p>You also have a Fare Radar account now, so you can change your airports and limits any time.</p>"
-        + `<form action="/#account" method="get"><button class=primary>Go to my account</button></form>`,
-        200, { "Set-Cookie": await memberSessionCookie(cfg, user) });
-    }
-    await subs.setStatus(s.id, "unsubscribed");
-    return page("Unsubscribed", "<h2>Unsubscribed.</h2><p>You won't get any more deal emails.</p>");
+    const users = UserStore.for(cfg);
+    const u = await users.byId(id);
+    if (u) await users.setAlerts(u.id, false, u.origins);
+    return page("Alerts off", "<h2>Alerts are off.</h2><p>You won't get deal emails. Turn them back on any time "
+      + "from your <a href=\"/#account\">Account page</a>.</p>");
+  }
+  if (p === "/u/confirm") {
+    return page("Alerts moved", "<h2>Deal alerts are now part of membership.</h2><p>Create an account on the site "
+      + "to get alerts with your own rules.</p>");
   }
 
   return null;
