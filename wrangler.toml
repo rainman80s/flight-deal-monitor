@@ -11,7 +11,7 @@ fallthrough = false
 
 [[rules]]
 type = "Data"
-globs = ["**/public/*.jpg", "**/public/fonts/*.woff2"]
+globs = ["**/public/*.jpg", "**/public/*.png", "**/public/fonts/*.woff2"]
 fallthrough = false
 
 # How often a search run happens (UTC cron): every hour, at :07. Every 3rd run is Google

@@ -65,6 +65,11 @@
       else verifyEmail(token);
       return route();
     }
+    if (want.startsWith("deal=")) {
+      history.replaceState(null, "", "#browse");
+      openSharedDeal(decodeURIComponent(want.slice(5)));
+      return route();
+    }
     if (want === "signin") {
       history.replaceState(null, "", "#browse");
       const err = q.get("error");
@@ -125,6 +130,9 @@
       setupSearch(m);
       $('[data-filter="origin"]').replaceChildren(segButton("", "SEA + PDX", true, "radio"),
         ...m.origins.map((o) => segButton(o.code, o.code, false, "radio")));
+      $$(".st-dest").forEach((x) => { x.textContent = m.destinations; });
+      renderStats(m.stats);
+      renderPlanCta();
       const providers = m.auth?.providers || [];
       $("#oauth-google").hidden = !providers.includes("google");
       $("#oauth-apple").hidden = !providers.includes("apple");
@@ -132,6 +140,28 @@
     } catch {
       $("#last-checked").textContent = "";
     }
+  }
+
+  /** Real numbers only; hidden until there's something worth saying. */
+  function renderStats(s) {
+    const box = $("#stats");
+    if (!s || !s.deals_30d) { box.hidden = true; return; }
+    box.replaceChildren();
+    const stat = (n, label) => { const d = el("span", "stat"); d.append(el("b", "", n), el("span", "", label)); return d; };
+    box.append(stat(String(s.deals_30d), "deals found in the last 30 days"));
+    if (s.avg_below_usual_pct) box.append(stat(`${s.avg_below_usual_pct}%`, "below the usual price, on average"));
+    if (s.routes_tracked) box.append(stat(String(s.routes_tracked), "routes whose prices we track"));
+    box.hidden = false;
+  }
+
+  /** The member plan's button does the next sensible thing for whoever's looking. */
+  function renderPlanCta() {
+    const b = $("#plan-cta");
+    if (!b) return;
+    $(".plan:not(.plan-member) .btn").hidden = !!state.me.signed_in;
+    if (isMember()) { b.textContent = state.me.role === "admin" ? "You have full access" : "You're a member"; b.disabled = true; return; }
+    b.disabled = false;
+    b.textContent = ctaLabel();
   }
 
   // ---------------- deals ----------------
@@ -270,6 +300,15 @@
     $("#deal-title").textContent = `${d.origin_city} → ${d.destination_city}`;
     $("#deal-codes").textContent = `${d.origin} → ${d.destination}`;
     $("#deal-price").textContent = money(d.price);
+    const save = $("#deal-save");
+    const med = d.typical?.median;
+    // The reason line already says "% below the usual" for those; don't say it twice.
+    save.hidden = !(med && d.price < med) || /below the usual/.test(d.ping_reason || "");
+    if (med && d.price < med) {
+      save.textContent = `${money(med - d.price)} below the usual ${money(med)} for this route (${Math.round((1 - d.price / med) * 100)}% off)`;
+    }
+    state.openDealCode = d.code;
+    $("#deal-share").textContent = "Share";
     const why = $("#deal-why");
     why.hidden = !(d.pinged && d.ping_reason);
     why.textContent = d.ping_reason ? `Why it's a deal: ${d.ping_reason}` : "";
@@ -283,7 +322,7 @@
       : "Still learning this route";
     $("#deal-note").textContent = d.is_fake ? "This is a test fare, not a real flight."
       : d.estimate ? "This price comes from a fare calendar or Google's explore view. The exact fare and flight times show when you open it." : "";
-    $("#deal-found").textContent = ago(d.found_at);
+    $("#deal-found-line").textContent = `Found ${ago(d.found_at)}.`;
 
     const first = (d.airlines || []).find((c) => AIRLINES[c]);
     const air = $("#deal-airline-btn");
@@ -303,6 +342,31 @@
     dlg.showModal();
   }
 
+  /** Opens a deal someone shared (#deal=CODE). */
+  async function openSharedDeal(code) {
+    if (!/^[A-Za-z0-9]{2,24}$/.test(code)) return;
+    try {
+      const out = await api(`/api/deal?code=${encodeURIComponent(code)}`);
+      openDeal(out.deal);
+      if (out.stale) $("#deal-found-line").textContent = `Found ${ago(out.deal.found_at)}, so the price has probably changed.`;
+    } catch (e) {
+      $("#last-checked").textContent = e.status === 404 ? "That shared deal has expired. Here's what's cheap right now." : "";
+    }
+  }
+
+  function wireDealCard() {
+    $("#deal-share").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      const url = `${location.origin}/#deal=${encodeURIComponent(state.openDealCode || "")}`;
+      const title = $("#deal-title").textContent;
+      try {
+        if (navigator.share) { await navigator.share({ title: `${title} · Fare Radar`, text: `${title} for ${$("#deal-price").textContent} round trip`, url }); return; }
+        await navigator.clipboard.writeText(url);
+        btn.textContent = "Link copied";
+      } catch { /* share sheet dismissed */ }
+    });
+  }
+
   // The alerts page shows the real alert layout, filled with the newest deal.
   function renderPreview(deals) {
     const d = deals[0];
@@ -316,17 +380,23 @@
   }
 
   // ---------------- paywall ----------------
+  /** Free-trial days this visitor would get (first membership only). */
+  const trialDays = () => (state.me.signed_in ? state.me.subscription?.trial_days ?? 0 : state.meta?.billing?.trial_days ?? 0);
+  const ctaLabel = () => (trialDays() ? `Start ${trialDays()}-day free trial` : "Become a member · $8/month");
+
   /** Fills a locked panel: sign up first, or become a member. */
   function fillLock(node, feature) {
     node.replaceChildren();
     const signedIn = !!state.me.signed_in;
     node.append(el("h3", "", `${feature} is for members`));
+    const trial = trialDays();
+    const offer = trial ? `Try it free for ${trial} days, then $8/month.` : "Membership is $8/month.";
     node.append(el("p", "", signedIn
-      ? "Membership is $8/month and covers deal alerts by your own rules, your own logic, and checking any route across a whole month. Cancel any time."
-      : "Create a free account, then become a member for $8/month to get deal alerts by your own rules, your own logic, and route search. Cancel any time."));
+      ? `${offer} It covers deal alerts by your own rules, your own logic, and checking any route across a whole month. Cancel any time.`
+      : `Create a free account, then become a member. ${offer} You get deal alerts by your own rules, your own logic, and route search. Cancel any time.`));
     const actions = el("div", "t-actions");
     if (signedIn) {
-      const b = el("button", "btn primary", "Become a member · $8/month");
+      const b = el("button", "btn primary", ctaLabel());
       b.type = "button";
       b.addEventListener("click", () => startCheckout(b, node));
       const more = el("a", "btn glass-btn", "What's included");
@@ -528,6 +598,7 @@
     }
     renderColumnRules();
     renderLocks();
+    renderPlanCta();
   }
 
   /** After signing in or out, or a membership change: reload what depends on it. */
@@ -882,15 +953,20 @@
       pill.textContent = "Admin";
       text.textContent = "Full access at no charge, plus booking and the site-wide settings.";
     } else if (me.entitled) {
-      pill.textContent = sub.status === "past_due" ? "Payment due" : "Member";
+      pill.textContent = sub.status === "past_due" ? "Payment due" : sub.status === "trialing" ? "Free trial" : "Member";
       text.textContent = sub.status === "past_due"
         ? "Your last payment didn't go through. Update your card in Manage billing to keep your membership."
-        : sub.cancel_at_period_end && sub.renews_at ? `Your membership ends on ${longDate(sub.renews_at)}. You can restart it in Manage billing.`
+        : sub.cancel_at_period_end && sub.renews_at ? `Your membership ends on ${longDate(sub.renews_at)}. You won't be charged again. You can restart it in Manage billing.`
+        : sub.status === "trialing" && sub.renews_at
+          ? `Your free trial runs until ${longDate(sub.renews_at)}. After that it's ${sub.price} unless you cancel in Manage billing before then. We'll email you 3 days before.`
         : sub.renews_at ? `Renews on ${longDate(sub.renews_at)} at ${sub.price}.` : "Your membership is active.";
     } else {
       pill.textContent = "Free";
-      text.textContent = `Become a member for ${sub.price || "$8/month"} to unlock everything below. Cancel any time.`;
+      text.textContent = trialDays()
+        ? `Try membership free for ${trialDays()} days, then ${sub.price || "$8/month"}. Cancel any time before the trial ends and you won't be charged.`
+        : `Become a member for ${sub.price || "$8/month"} to unlock everything below. Cancel any time.`;
       subscribe.hidden = false;
+      subscribe.textContent = ctaLabel();
     }
     pill.dataset.kind = me.role === "admin" ? "admin" : me.entitled ? "member" : "free";
     $("#mem-perks").hidden = me.entitled && me.role !== "admin" ? false : false;
@@ -1019,6 +1095,26 @@
     const origins = state.meta?.origins || [{ code: "SEA", city: "Seattle" }, { code: "PDX", city: "Portland" }];
     $("#alerts-home").replaceChildren(...origins.map((o) =>
       segButton(o.code, `${o.city} (${o.code})`, acct.alerts.origins.includes(o.code), "toggle")));
+    // Which places: everywhere, or a picked list (grouped US / abroad).
+    const picked = acct.alerts.destinations;
+    const list = state.meta?.destination_list || [];
+    const group = (label, kind) => {
+      const box = el("div", "dest-group");
+      box.append(el("p", "field-label", label));
+      for (const d of list.filter((x) => x.kind === kind).sort((a, b) => a.city.localeCompare(b.city))) {
+        const lab = el("label", "chk");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = d.code;
+        input.checked = !!picked && picked.includes(d.code);
+        lab.append(input, ` ${d.city}`);
+        box.append(lab);
+      }
+      return box;
+    };
+    $("#alerts-dests").replaceChildren(group("United States", "domestic"), group("Abroad", "international"));
+    setScope(!!picked);
+    f.elements.nonstop.checked = !!acct.alerts.nonstop_only;
     const cats = state.rules || state.meta?.rules;
     $("#alerts-rules").textContent = cats
       ? `${describeRules("international", cats.international)} ${describeRules("domestic", cats.domestic)}` : "";
@@ -1029,7 +1125,16 @@
     f.onchange = (e) => { if (e.target.name === "on") setSwitch(e.target.checked); };
   }
 
+  function setScope(some) {
+    $$("#alerts-scope button").forEach((b) => b.setAttribute("aria-checked", String((b.dataset.value === "some") === some)));
+    $("#alerts-dests").hidden = !some;
+  }
+
   function wireAlerts() {
+    $("#alerts-scope").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (b) setScope(b.dataset.value === "some");
+    });
     $("#alerts-home").addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -1042,7 +1147,9 @@
       const msg = $(".t-msg", e.target);
       try {
         await api("/api/account/alerts", "PUT", { on: e.target.elements.on.checked,
-          origins: $$("#alerts-home button[aria-pressed=true]").map((b) => b.dataset.value) });
+          origins: $$("#alerts-home button[aria-pressed=true]").map((b) => b.dataset.value),
+          destinations: $("#alerts-dests").hidden ? "everywhere" : $$("#alerts-dests input:checked").map((x) => x.value),
+          nonstop_only: e.target.elements.nonstop.checked });
         flash(msg, e.target.elements.on.checked ? "Saved. Alerts are on." : "Saved. Alerts are off.", "ok");
         renderAlerts();
       } catch (err) { flash(msg, err.message, "err"); }
@@ -1315,5 +1422,10 @@
   wireSearch();
   wireBooking();
   wireContact();
+  wireDealCard();
+  $("#plan-cta").addEventListener("click", (e) => {
+    if (!state.me.signed_in) openAuth("signup");
+    else if (!isMember()) startCheckout(e.currentTarget, e.currentTarget.closest(".plan"));
+  });
   Promise.all([loadMeta(), loadMe()]).then(() => { route(); loadDeals(); });
 })();

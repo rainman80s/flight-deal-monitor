@@ -1,11 +1,12 @@
 /**
- * Website API (the static site lives in public/ and is served by Workers Assets).
+ * Website API (the static site in public/ is bundled into the Worker, see static.ts).
  *
- *   GET  /api/meta                 airports, limits, mode, stats
- *   GET  /api/deals?origin=&kind=&max=&sort=&limit=   recent deals for Browse
- *   POST /api/subscribe            JSON {email, origins, domestic_max, international_max, website}
- *   GET  /u/confirm?id=&t=         confirmation page (button)   POST performs it
- *   GET  /u/unsubscribe?id=&t=     unsubscribe page (button)    POST performs it (also one-click from mail apps)
+ *   GET  /api/meta                 airports, site rules, sign-in options, billing, live stats
+ *   GET  /api/deals?origin=&kind=&max=&sort=&limit=   deals (a member sees them through their own rules)
+ *   GET  /api/deal?code=           one deal, for shared links
+ *   GET  /api/logic, PUT (admins)  site default rules;  GET /api/baselines   learned prices (members)
+ *   POST /api/search               month price calendar for one route (members)
+ *   GET|POST /u/unsubscribe?u=&t=  stop alerts from an email (also one-click from mail apps)
  *   POST /api/contact              JSON {name, email, message, website}: emails the owner, reply-to the sender
  */
 import type { Deps } from "./app";
@@ -22,12 +23,35 @@ import { ResendEmailer } from "./notify";
 import { paywall } from "./account";
 import { verifyUnsubscribe } from "./alerts";
 import { currentSession, currentUser, sameOrigin } from "./auth";
-import { PRICE_CENTS, stripeEnabled } from "./billing";
+import { PRICE_CENTS, stripeEnabled, TRIAL_DAYS } from "./billing";
 import { EMAIL_RE } from "./crypto";
 import { providersEnabled } from "./oauth";
 import { entitled, UserStore } from "./users";
 import { pingReason, PriceHistory } from "./baselines";
 import { defaultCategories, describe, loadSaved, personalCategories, resetCategories, saveCategories, toRaw, validateCat } from "./settings";
+
+/**
+ * Real numbers for the homepage, straight from our own records (never padded): deals found in the
+ * last 30 days, how far below the route's usual price the worthwhile ones were, and routes tracked.
+ */
+async function siteStats(cfg: Config) {
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 19);
+  const r = await cfg.env.DB.prepare(
+    `SELECT COUNT(*) AS deals,
+            AVG(CASE WHEN typical_median > 0 AND price < typical_median THEN 1.0 - price / typical_median END) AS below,
+            COUNT(DISTINCT origin || destination) AS routes
+     FROM deals WHERE is_fake = 0 AND found_at >= ?`,
+  ).bind(since).first<{ deals: number; below: number | null; routes: number }>();
+  const tracked = await cfg.env.DB.prepare("SELECT COUNT(DISTINCT origin || destination) AS n FROM price_obs")
+    .first<{ n: number }>();
+  return {
+    deals_30d: Number(r?.deals ?? 0),
+    routes_with_deals_30d: Number(r?.routes ?? 0),
+    avg_below_usual_pct: r?.below != null ? Math.round(r.below * 100) : null,
+    routes_tracked: Number(tracked?.n ?? 0),
+    destinations: cfg.domestic.length + cfg.international.length,
+  };
+}
 
 const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(data), {
@@ -83,9 +107,21 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       },
       auth: { providers: providersEnabled(cfg) },
       rules: { domestic: toRaw(cfg.cats.domestic), international: toRaw(cfg.cats.international) },
-      billing: { enabled: stripeEnabled(cfg), price: `$${PRICE_CENTS / 100}/month` },
+      billing: { enabled: stripeEnabled(cfg), price: `$${PRICE_CENTS / 100}/month`, trial_days: TRIAL_DAYS },
+      stats: await siteStats(cfg),
       last_checked_at: await store.getState("last_cycle_at"),
     }, 200, { "Cache-Control": "public, max-age=60" });
+  }
+
+  // One deal, for shared links (#deal=CODE). Old (30+ days) and test fares aren't shared.
+  if (p === "/api/deal" && req.method === "GET") {
+    const code = (url.searchParams.get("code") ?? "").toUpperCase();
+    if (!/^[A-Z0-9]{2,24}$/.test(code)) return json({ ok: false, error: "Not found." }, 404);
+    const d = await store.dealByCode(code);
+    const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 19);
+    if (!d || d.is_fake || d.found_at < monthAgo) return json({ ok: false, error: "That deal has expired." }, 404);
+    return json({ ok: true, deal: publicDeal(cfg, d), stale: d.found_at < new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 19) },
+      200, { "Cache-Control": "public, max-age=300" });
   }
 
   if (p === "/api/deals" && req.method === "GET") {

@@ -15,7 +15,7 @@ interface Row {
   failed_logins: number; locked_until: number; created_at: string; last_login_at: string | null;
   password_changed_at: string | null; stripe_customer_id: string | null; subscription_id: string | null;
   subscription_status: string | null; current_period_end: number | null; cancel_at_period_end: number;
-  alerts_on: number; origins: string; rules: string | null;
+  alerts_on: number; origins: string; rules: string | null; destinations: string | null; nonstop_only: number;
 }
 
 export interface User {
@@ -40,6 +40,9 @@ export interface User {
   alertsOn: boolean;
   origins: string[];
   rules: unknown | null;
+  /** Airport codes to get alerts for; null means everywhere. */
+  destinations: string[] | null;
+  nonstopOnly: boolean;
 }
 
 export const SESSION_DAYS = 30;
@@ -89,6 +92,8 @@ export class UserStore {
       alertsOn: !!r.alerts_on,
       origins: safeJson(r.origins, ["SEA", "PDX"]) as string[],
       rules: r.rules ? safeJson(r.rules, null) : null,
+      destinations: r.destinations ? safeJson(r.destinations, null) as string[] | null : null,
+      nonstopOnly: !!r.nonstop_only,
     };
   }
 
@@ -163,6 +168,11 @@ export class UserStore {
 
   async setAlerts(id: number, on: boolean, origins: string[]) {
     await this.db.prepare("UPDATE users SET alerts_on=?, origins=? WHERE id=?").bind(on ? 1 : 0, JSON.stringify(origins), id).run();
+  }
+
+  async setAlertPrefs(id: number, destinations: string[] | null, nonstopOnly: boolean) {
+    await this.db.prepare("UPDATE users SET destinations=?, nonstop_only=? WHERE id=?")
+      .bind(destinations ? JSON.stringify(destinations) : null, nonstopOnly ? 1 : 0, id).run();
   }
 
   async setRules(id: number, rules: unknown | null) {
@@ -301,7 +311,8 @@ export class UserStore {
           ...(u.hasPassword ? ["password"] : []), ...(await this.identities(u.id))] },
       subscription: { status: u.subscriptionStatus, current_period_end: u.currentPeriodEnd
         ? new Date(u.currentPeriodEnd * 1000).toISOString() : null, cancel_at_period_end: u.cancelAtPeriodEnd },
-      alerts: { on: u.alertsOn, origins: u.origins, last_sent_at: await this.lastAlertAt(u.id) },
+      alerts: { on: u.alertsOn, origins: u.origins, destinations: u.destinations ?? "everywhere", nonstop_only: u.nonstopOnly,
+        last_sent_at: await this.lastAlertAt(u.id) },
       personal_rules: u.rules,
       active_sessions: await this.sessionCount(u.id),
     };

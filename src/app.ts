@@ -112,7 +112,8 @@ async function route(req: Request, deps: Deps): Promise<Response> {
   }
 
   if (req.method === "GET" || req.method === "HEAD") {
-    const file = staticFile(path);
+    const base = typeof cfg.env.PUBLIC_BASE_URL === "string" ? cfg.env.PUBLIC_BASE_URL.replace(/\/$/, "") : url.origin;
+    const file = staticFile(path, base);
     if (file) return file;
   }
 

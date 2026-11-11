@@ -15,13 +15,19 @@
 import type { Deps } from "./app";
 import { currentSession } from "./auth";
 import { type Config, secret } from "./config";
+import { accountEmail, sendMail } from "./account";
 import { safeEqual } from "./crypto";
 import { entitled, type User, UserStore } from "./users";
 
 export const PRICE_CENTS = 800;
+/** Free trial for first-time members (0 turns it off). Stripe charges when it ends unless they cancel. */
+export const TRIAL_DAYS = 7;
 const STRIPE_VERSION = "2024-06-20"; // pinned so field shapes don't change under us
 const WEBHOOK_EVENTS = ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated",
-  "customer.subscription.deleted", "invoice.paid", "invoice.payment_failed"];
+  "customer.subscription.deleted", "customer.subscription.trial_will_end", "invoice.paid", "invoice.payment_failed"];
+
+/** One trial per account: anyone who has ever had a subscription pays from day one. */
+export const trialDaysFor = (u: User) => (u.role !== "admin" && !u.subscriptionId && !u.subscriptionStatus ? TRIAL_DAYS : 0);
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
@@ -91,6 +97,7 @@ export function subscriptionView(u: User) {
     cancel_at_period_end: u.cancelAtPeriodEnd,
     price: `$${(PRICE_CENTS / 100).toFixed(0)}/month`,
     can_manage: !!u.stripeCustomerId,
+    trial_days: trialDaysFor(u),
   };
 }
 
@@ -182,7 +189,12 @@ export async function billingRoute(req: Request, url: URL, deps: Deps): Promise<
     const session = await stripe.call<{ url: string }>("POST", "/checkout/sessions", {
       mode: "subscription", customer, client_reference_id: String(u.id),
       line_items: [{ price, quantity: 1 }],
-      subscription_data: { metadata: { user_id: String(u.id) } },
+      subscription_data: { metadata: { user_id: String(u.id) },
+        ...(trialDaysFor(u) ? { trial_period_days: trialDaysFor(u) } : {}) },
+      // Shown under the pay button, so nobody is surprised by the first charge.
+      custom_text: { submit: { message: trialDaysFor(u)
+        ? `Free for ${trialDaysFor(u)} days, then $${PRICE_CENTS / 100}/month. Cancel any time before the trial ends and you won't be charged. We'll email you 3 days before it ends.`
+        : `$${PRICE_CENTS / 100}/month. Cancel any time from your Account page.` } },
       allow_promotion_codes: "true",
       success_url: `${base(cfg)}/#account?billing=success`,
       cancel_url: `${base(cfg)}/#account?billing=cancelled`,
@@ -223,6 +235,19 @@ async function handleEvent(cfg: Config, users: UserStore, event: { type: string;
   if (!customerId) return;
   const u = await users.byStripeCustomer(customerId);
   if (!u) return; // a customer we don't know (or a deleted account): nothing to update
+  if (event.type === "customer.subscription.trial_will_end") {
+    // Stripe sends this 3 days before a trial ends: tell them plainly when and how much.
+    const end = typeof o.trial_end === "number" ? new Date(o.trial_end * 1000) : null;
+    const when = end ? end.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" }) : "in 3 days";
+    await sendMail(cfg, u.email, accountEmail(cfg, u.email, {
+      subject: "Your Fare Radar free trial ends soon", eyebrow: "Membership", heading: "Your free trial ends soon",
+      lead: `Your free trial ends on ${when}. If you keep your membership, you'll be charged $${PRICE_CENTS / 100} then and `
+        + "each month after. To stop it, cancel in Manage billing on your Account page before that date and you won't be charged.",
+      link: `${base(cfg)}/#account`, cta: "Manage my membership", preheader: `Your trial ends ${when}.`,
+      note: "Questions about billing? Reply to this email or use the contact page.",
+    }));
+    return;
+  }
   if (event.type.startsWith("customer.subscription.")) {
     const sub = o as unknown as Sub;
     // Only track this customer's current subscription (or a new one replacing it).

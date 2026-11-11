@@ -62,7 +62,7 @@ async function limit(cfg: Config, req: Request, what: string, perDay: number) {
 }
 
 /** Sends an account email. Returns false (and logs) instead of throwing. */
-async function sendMail(cfg: Config, to: string, msg: { subject: string; text: string; html: string }) {
+export async function sendMail(cfg: Config, to: string, msg: { subject: string; text: string; html: string }) {
   const key = cfg.env.RESEND_API_KEY;
   if (typeof key !== "string" || !key) return false;
   try {
@@ -75,7 +75,7 @@ async function sendMail(cfg: Config, to: string, msg: { subject: string; text: s
   }
 }
 
-function accountEmail(cfg: Config, to: string, o: { subject: string; eyebrow: string; heading: string; lead: string;
+export function accountEmail(cfg: Config, to: string, o: { subject: string; eyebrow: string; heading: string; lead: string;
                                                      link?: string; cta?: string; note: string; preheader: string }) {
   const f = frameFor(cfg);
   const reason = `You're getting this because of activity on the ${BRAND} account for ${to}.`;
@@ -327,7 +327,15 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
       const origins = Array.isArray(b?.origins)
         ? [...new Set((b!.origins as unknown[]).map((o) => String(o).toUpperCase()))].filter((o) => cfg.origins.includes(o)) : [];
       if (!origins.length) return json({ ok: false, error: "Pick at least one home airport." }, 400);
+      // Destinations: "everywhere" (or missing) means all; otherwise a list of airports we cover.
+      let destinations: string[] | null = null;
+      if (Array.isArray(b?.destinations)) {
+        const known = new Set([...cfg.domestic, ...cfg.international]);
+        destinations = [...new Set((b!.destinations as unknown[]).map((d) => String(d).toUpperCase()))].filter((d) => known.has(d));
+        if (!destinations.length) return json({ ok: false, error: "Pick at least one place, or choose Everywhere.", field: "destinations" }, 400);
+      }
       await users.setAlerts(u.id, b?.on !== false, origins);
+      await users.setAlertPrefs(u.id, destinations, b?.nonstop_only === true);
       return json({ ok: true, account: await accountView(cfg, users, (await users.byId(u.id))!) });
     }
 
@@ -397,7 +405,8 @@ function redirect(to: string, cookie?: string) {
 async function accountView(cfg: Config, users: UserStore, u: User) {
   return {
     ...(await meView(cfg, users, u)),
-    alerts: { on: u.alertsOn, origins: u.origins, last_sent_at: await users.lastAlertAt(u.id) },
+    alerts: { on: u.alertsOn, origins: u.origins, destinations: u.destinations, nonstop_only: u.nonstopOnly,
+      last_sent_at: await users.lastAlertAt(u.id) },
     customized_rules: !!u.rules,
   };
 }

@@ -57,7 +57,13 @@ export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why
       + `font-size:15px;color:#6b4705;font-weight:600">Why it's a deal: ${escHtml(why)}</p>`
       + p(`<b style="color:#14262c">${escHtml(shortDate(d.depart_date))} → ${escHtml(shortDate(d.return_date))}</b><br>`
         + `${legs}${airlines ? ` · ${escHtml(airlines)}` : ""}`)
-      + (d.booking_url ? `<div style="margin:22px 0 4px">${button(d.booking_url, "See it and book")}</div>` : "")
+      + (d.typical_median && d.price < d.typical_median
+        ? p(`Usually about <b style="color:#14262c">$${Math.round(d.typical_median)}</b> on this route, so you save about `
+          + `<b style="color:#14262c">$${Math.round(d.typical_median - d.price)}</b>.`) : "")
+      + `<div style="margin:22px 0 4px">${d.booking_url ? button(d.booking_url, "See it and book") : ""}`
+      + `${button(`${frameFor(cfg).base}/#deal=${encodeURIComponent(d.code)}`, "Details", "secondary")}</div>`
+      + fine("How to book: open the fare, and if the price moved try a day either side. Book with the airline when you can. "
+        + "Cheap fares are often basic economy, so check bag fees. In the US you can usually cancel within 24 hours for a full refund.")
       + fine("Prices move fast. Check the fare before you pay. We don't earn anything if you book."),
     reason, unsubscribeUrl: unsub,
   });
@@ -100,6 +106,10 @@ export async function notifyMembers(cfg: Config, notifier: Notifier, deals: Deal
     for (const d of fresh) {
       if (mine >= PER_RUN || todayCount >= PER_DAY) break;
       if (!u.origins.includes(d.origin)) continue;
+      if (u.destinations && !u.destinations.includes(d.destination)) continue;
+      // Nonstop only: skip anything with stops, and estimates whose stops we don't know yet.
+      const estimate = d.provider === "ignav-calendar" || d.provider === "google-explore";
+      if (u.nonstopOnly && (estimate || d.outbound_stops > 0 || d.return_stops > 0)) continue;
       const kind = d.kind === "domestic" || d.kind === "international" ? d.kind : (cfg.domestic.includes(d.destination) ? "domestic" : "international");
       const fare = { provider: d.provider, origin: d.origin, destination: d.destination, departDate: d.depart_date,
         returnDate: d.return_date, price: d.price, currency: d.currency, airlines: [], outboundStops: 0, returnStops: 0,

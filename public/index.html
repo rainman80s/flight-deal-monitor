@@ -4,8 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fare Radar</title>
-  <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock.">
+  <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock. Browse deals free; members get alerts by their own rules.">
   <meta name="theme-color" content="#0e1d22">
+  <link rel="canonical" href="{{BASE}}/">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Fare Radar">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Fare Radar">
+  <meta property="og:title" content="Fare Radar: cheap flights from Seattle and Portland">
+  <meta property="og:description" content="Cheap round trips out of Seattle and Portland, found day and night. Browse free, or get alerts by your own rules.">
+  <meta property="og:url" content="{{BASE}}/">
+  <meta property="og:image" content="{{BASE}}/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Fare Radar: Go somewhere for less.">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preload" href="/bg.jpg" as="image">
   <link rel="preload" href="/fonts/instrument-serif.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%23f6b443%27/%3E%3Cpath transform=%27translate(12 12) scale(1.666)%27 fill=%27%23231703%27 d=%27M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z%27/%3E%3C/svg%3E">
@@ -90,6 +104,7 @@
     <h2 id="deal-title"></h2>
     <p class="deal-codes" id="deal-codes"></p>
     <div class="deal-price"><b id="deal-price"></b><span>round trip, per person</span></div>
+    <p class="save-pill" id="deal-save" hidden></p>
     <p class="why-pill" id="deal-why" hidden></p>
     <dl class="deal-facts">
       <div><dt>Leave</dt><dd id="deal-depart"></dd></div>
@@ -100,12 +115,24 @@
       <div><dt>Usual price</dt><dd id="deal-usual"></dd></div>
     </dl>
     <p class="fine" id="deal-note"></p>
+    <details class="howto">
+      <summary>How to book this</summary>
+      <ol>
+        <li>Open the fare on Google Flights (or the airline) with the button below. The dates are filled in.</li>
+        <li>If the price changed, try a day either side; cheap fares usually cover several dates.</li>
+        <li>Book with the airline when you can: changes and refunds are easier than through a third-party site.</li>
+        <li>In the US you can usually cancel within 24 hours of booking for a full refund, if you book at least a
+          week before departure.</li>
+      </ol>
+    </details>
     <div class="deal-actions">
       <a class="btn primary" id="deal-airline-btn" target="_blank" rel="noopener noreferrer" hidden></a>
       <a class="btn glass-btn" id="deal-google-btn" target="_blank" rel="noopener noreferrer">See it on Google Flights</a>
       <button type="button" class="btn buy" id="deal-buy" hidden>Buy</button>
+      <button type="button" class="btn glass-btn" id="deal-share">Share</button>
     </div>
-    <p class="fine">Found <span id="deal-found"></span>. Prices change quickly; check the fare before you pay.</p>
+    <p class="fine"><span id="deal-found-line"></span> Cheap fares are often basic economy: seats may be
+      assigned at check-in and carry-on or checked bags can cost extra, so check the fare rules before you pay.</p>
   </dialog>
 
   <!-- delete account -->
@@ -205,6 +232,48 @@
 
     </div>
 
+    <section class="page how" aria-labelledby="how-title">
+      <h2 class="section-title" id="how-title">How it works</h2>
+      <ol class="steps">
+        <li><b>We search around the clock.</b> Every hour we check round trips from Seattle and Portland to
+          <span class="st-dest">54</span> cities, using Google Flights data and a second fare source.</li>
+        <li><b>We know what normal looks like.</b> Each route's usual price is learned from every fare we see, so a
+          deal means genuinely cheap for that city, not just cheap-looking.</li>
+        <li><b>You book with the airline.</b> Tap a deal for the dates, airline and usual price, then book directly.
+          We never take a cut.</li>
+      </ol>
+      <p class="stats" id="stats" hidden></p>
+
+      <h2 class="section-title" id="plans-title">Free or member</h2>
+      <div class="plans">
+        <div class="plan">
+          <h3>Free</h3>
+          <p class="plan-price">$0</p>
+          <ul>
+            <li>Every deal we find, updated hourly</li>
+            <li>Full details for each deal</li>
+            <li>Links to book with the airline</li>
+          </ul>
+          <button type="button" class="btn glass-btn" data-auth="signup">Create a free account</button>
+        </div>
+        <div class="plan plan-member">
+          <h3>Member</h3>
+          <p class="plan-price">$8<span>/month</span></p>
+          <ul>
+            <li>Everything in Free</li>
+            <li>Email alerts the moment a fare fits your rules</li>
+            <li>Your own logic: how far out, how long, how cheap</li>
+            <li>"Well below usual" alerts for each city</li>
+            <li>Pick the places you care about, nonstop only if you like</li>
+            <li>Check any route across a whole month of dates</li>
+          </ul>
+          <button type="button" class="btn primary" id="plan-cta">Start 7-day free trial</button>
+          <p class="t-msg" role="status" aria-live="polite"></p>
+          <p class="fine">Cancel any time. We email you before the trial ends.</p>
+        </div>
+      </div>
+    </section>
+
     <section class="page search route-search" aria-labelledby="search-title">
       <h2 id="search-title">Check a route</h2>
       <p class="section-sub">Prices every departure date in a month for one trip length. Results from the last
@@ -247,6 +316,16 @@
             <legend class="field-label">Flying out of</legend>
             <div class="seg wide" id="alerts-home" role="group"></div>
           </fieldset>
+          <fieldset class="field-set">
+            <legend class="field-label">Alert me about</legend>
+            <div class="seg wide" id="alerts-scope" role="radiogroup" aria-label="Which destinations">
+              <button type="button" role="radio" data-value="all" aria-checked="true">Everywhere</button>
+              <button type="button" role="radio" data-value="some" aria-checked="false">Only places I pick</button>
+            </div>
+            <div class="dest-pick" id="alerts-dests" hidden></div>
+          </fieldset>
+          <label class="switch nonstop"><input type="checkbox" name="nonstop" role="switch"><span aria-hidden="true"></span>
+            <b>Nonstop flights only</b></label>
           <p class="muted-p rules-line" id="alerts-rules"></p>
           <p class="fine" id="alerts-status"></p>
           <div class="t-actions"><button class="btn primary" type="submit">Save alerts</button>
@@ -421,7 +500,8 @@
       <details><summary>What do members get?</summary>
         <p>For $8 a month: deal alerts by email, judged by your own rules; your own logic (how far out, how long, how
           cheap, and "well below the usual price" alerts), which changes only your view; and route search across a
-          whole month of dates. Anyone can browse the deals for free.</p></details>
+          whole month of dates. Your first 7 days are free, and we remind you before the trial ends. Anyone can browse
+          the deals for free.</p></details>
       <details><summary>How do I cancel?</summary>
         <p>On your Account page, choose Manage billing, then cancel. You keep your membership until the end of the
           month you've paid for. You can also delete your account, which cancels right away.</p></details>
@@ -471,7 +551,8 @@
       <ul>
         <li><b>Your account.</b> Your email address, the name you give (if any), your password (only as a one-way
           hash), whether you signed in with Google or Apple, and when you created the account and last signed in.</li>
-        <li><b>Your settings.</b> Your home airports, whether alerts are on, your own deal rules, and which deals we've
+        <li><b>Your settings.</b> Your home airports, whether alerts are on, the places you want alerts for, nonstop-only, your own deal
+          rules, and which deals we've
           emailed you about, so we never send the same one twice.</li>
         <li><b>Membership.</b> Your Stripe customer number and your membership status and renewal date. Stripe holds
           the payment details.</li>
@@ -575,6 +656,9 @@
       <p>Browsing the deals is free. Deal alerts, your own logic and route search are part of a membership, which
         costs $8 per month (plus any sales tax) and renews automatically each month until you cancel. Stripe processes
         payments; we never see or store your card number.</p>
+      <p><b>Free trial.</b> Your first membership starts with a 7-day free trial. You enter a card at the start, and
+        nothing is charged during the trial. We email you 3 days before it ends. If you cancel before the trial ends,
+        you pay nothing; otherwise the first $8 charge happens when it ends. One free trial per person.</p>
       <p>Cancel any time in Manage billing on your Account page. Your membership then runs to the end of the month
         you've paid for and doesn't renew. Payments aren't refunded for partial months, except where the law requires
         it. If a renewal payment fails, we keep your access for a short grace period while Stripe retries. If we change

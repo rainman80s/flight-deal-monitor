@@ -11,12 +11,12 @@ export default defineConfig({
     name: "public-as-text",
     enforce: "pre",
     resolveId(source, importer) {
-      if (importer && /(^|\/)public\/(fonts\/)?[^/]+\.(html|css|js|jpg|woff2)$/.test(source)) {
+      if (importer && /(^|\/)public\/(fonts\/)?[^/]+\.(html|css|js|jpg|png|woff2)$/.test(source)) {
         return PREFIX + resolve(dirname(importer), source) + ".text"; // no .css suffix, so Vitest's CSS stub skips it
       }
     },
     load(id) {
-      if (id.startsWith(PREFIX) && /\.(jpg|woff2)\.text$/.test(id)) {
+      if (id.startsWith(PREFIX) && /\.(jpg|png|woff2)\.text$/.test(id)) {
         const b64 = readFileSync(id.slice(PREFIX.length, -".text".length)).toString("base64");
         return `export default Uint8Array.from(atob(${JSON.stringify(b64)}), (c) => c.charCodeAt(0)).buffer;`;
       }
