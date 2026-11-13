@@ -19,6 +19,7 @@
  *
  *   GET  /health
  */
+import { checkInstagram } from "./instagram";
 import { executeBuy, maxTotal, needsConfirmation, requestBuy, travelersFor } from "./booking";
 import { type Config, contactByName, contactByPhone, kindOf, limitOf, secret } from "./config";
 import { dealSpeech } from "./messages";
@@ -255,6 +256,9 @@ async function admin(req: Request, url: URL, deps: Deps): Promise<Response> {
     return json({ provider: cfg.provider, dry_run: cfg.dryRun, ignav_requests: await ignavBudget(cfg).usage(),
       serpapi_searches: await serpapiBudget(cfg).usage(), explore_enabled: !!makeExplore(cfg),
       deals: await store.recentDeals(20), bookings: await store.bookings(20) });
+  }
+  if (url.pathname === "/admin/instagram/check" && req.method === "GET") {
+    return json(await checkInstagram(cfg));
   }
   if (url.pathname === "/admin/stripe/setup" && req.method === "POST") {
     return json(await setupStripe(cfg));
