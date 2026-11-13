@@ -189,11 +189,53 @@ if (head) {
 const plan = [`Fare Radar posts for the week of ${today}`, "",
   ...posts.map((p, i) => `${i + 1}. ${p.files.join(" + ")}`), "",
   "Suggested schedule: post 1 Monday evening, post 2 Wednesday, post 3 Friday. Put the link in your bio.",
+  "Also here: Talking-head scripts to record.txt. Film one or more this week and drop them in Talking heads.",
   `Link for bio: ${link}`, "", "Captions are in the matching .txt files."].join("\n");
 writeFileSync(join(OUT, "0 This week's plan.txt"), plan);
 posts.forEach((p, i) => writeFileSync(join(OUT, `${i + 1} caption.txt`), p.caption));
 
-const uploads = [["0 This week's plan.txt", "text/plain"], ...posts.flatMap((p, i) => [...p.files.map((f) => [f, "video/mp4"]), [`${i + 1} caption.txt`, "text/plain"]])];
+// ---------- talking-head scripts to record ----------
+// Short scripts built from this week's real deals, for Ran and Brock to film and drop into
+// Talking heads. The next Sunday run turns each recording into a branded founder clip.
+const d1 = toDeal(hero);
+// Each script names a different place, so the three don't repeat each other.
+const others = ranked.filter((d) => d.destination !== hero.destination);
+const d2raw = others.find((d) => d.outbound_stops === 0 && d.return_stops === 0) || others[0] || alertDeal;
+const d3raw = others.find((d) => d.destination !== d2raw.destination && d.origin !== d2raw.origin)
+  || others.find((d) => d.destination !== d2raw.destination) || listDeals[0] || ranked[1];
+const d2 = toDeal(d2raw);
+const d3 = toDeal(d3raw);
+const off = (d) => (d.usual ? Math.round((1 - d.price / d.usual) * 100) : null);
+const scripts = [
+  { title: "The deal of the week (20–30 sec)", lines: [
+    `HOOK (look straight at the camera, say it fast): "${d1.from} to ${d1.to}. ${d1.price} bucks. Round trip."`,
+    d1.usual ? `"That route usually runs about $${d1.usual}. That's ${off(d1)}% off."` : `"That's one of the cheapest fares we've seen on that route."`,
+    `"${d1.dates}${d1.airline ? `, on ${d1.airline}` : ""}. Fares like this don't last, so if you want it, book it this week."`,
+    `CTA: "We find these every hour out of Seattle and Portland. Alerts are free. Link's in our bio."`,
+  ] },
+  { title: "Why we built it (30–40 sec)", lines: [
+    `HOOK: "We got tired of checking flight prices every single day. So we built something that does it for us."`,
+    `"Fare Radar checks round trips out of SEA and PDX every hour, compares them to what that route normally costs, and only emails you when something's actually cheap."`,
+    `"Like this week: ${d2.from} to ${d2.to} for $${d2.price}${d2.airline ? ` on ${d2.airline}` : ""}."`,
+    `CTA: "No ads, no booking fees. It's free. Link's in our bio."`,
+  ] },
+  { title: "Quick tip (20–30 sec)", lines: [
+    `HOOK: "Here's how to actually catch a cheap flight out of ${d3.origin === "PDX" ? "Portland" : "Seattle"}."`,
+    `"Be flexible by a day or two. The same trip can cost a lot less if you leave midweek instead of on a Friday."`,
+    `"And when you see a good fare, book it. In the US you can usually cancel within 24 hours for a full refund."`,
+    `CTA: "This week we found ${d3.from} to ${d3.to} for $${d3.price}. We post these every week. Follow for more."`,
+  ] },
+];
+const scriptText = [`Talking-head scripts to record (week of ${today})`, "",
+  "How to film: phone vertical at eye level, face a window for light, quiet room. One take each is fine.",
+  "Talk like you're telling a friend, not reading. Pause a second before you start and after you finish.",
+  "Upload to Admin → Content → Talking heads. Next Sunday's run turns each one into a branded post.", "",
+  ...scripts.flatMap((sc, i) => [`${i + 1}. ${sc.title}`, ...sc.lines.map((l) => `   ${l}`), ""]),
+  "Prices are this week's real deals. If you film more than a few days later, check the fare on",
+  "fareradar.cc and use the current price, or leave the exact number out."].join("\n");
+writeFileSync(join(OUT, "Talking-head scripts to record.txt"), scriptText);
+
+const uploads = [["0 This week's plan.txt", "text/plain"], ["Talking-head scripts to record.txt", "text/plain"], ...posts.flatMap((p, i) => [...p.files.map((f) => [f, "video/mp4"]), [`${i + 1} caption.txt`, "text/plain"]])];
 if (DRY) { log(`dry run: ${uploads.length} files in ${OUT}`); process.exit(0); }
 for (const [file, type] of uploads) {
   const rand = Math.random().toString(36).slice(2, 8);
