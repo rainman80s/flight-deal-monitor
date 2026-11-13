@@ -42,6 +42,10 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
 const isFolder = (f: unknown): f is Folder => typeof f === "string" && f in FOLDERS;
 
 /** A safe, readable object name: "2026-11-13-k3j9qa-cabo sunset.mov". */
+/** The name people see: stored name, or the key without its "2026-11-13-k3j9qa-" storage prefix. */
+export const displayName = (key: string, stored?: string) =>
+  stored ?? key.split("/").pop()!.replace(/^\d{4}-\d{2}-\d{2}-[a-z0-9]{1,8}-/, "");
+
 export function objectKey(folder: Folder, name: string, now = new Date()): string | null {
   const clean = name.normalize("NFC").replace(/[\\/\u0000-\u001f\u007f<>:"|?*]/g, "").replace(/\s+/g, " ").trim().slice(-120);
   const ext = clean.split(".").pop()?.toLowerCase() ?? "";
@@ -75,7 +79,7 @@ export async function mediaRoute(req: Request, url: URL, cfg: Config, u: User): 
     do {
       const page = await r2.list({ prefix: `${folder}/`, cursor, include: ["customMetadata", "httpMetadata"] });
       for (const o of page.objects) {
-        files.push({ key: o.key, name: o.customMetadata?.name ?? o.key.split("/").pop()!, size: o.size,
+        files.push({ key: o.key, name: displayName(o.key, o.customMetadata?.name), size: o.size,
           uploaded: o.uploaded.toISOString(), by: o.customMetadata?.by ?? null, type: o.httpMetadata?.contentType ?? null });
       }
       cursor = page.truncated ? page.cursor : undefined;
@@ -133,7 +137,7 @@ export async function mediaRoute(req: Request, url: URL, cfg: Config, u: User): 
     if (!validKey(key)) return json({ ok: false, error: "Bad request." }, 400);
     const obj = await r2.get(key);
     if (!obj) return json({ ok: false, error: "Not found." }, 404);
-    const name = (obj.customMetadata?.name ?? key.split("/").pop()!).replace(/["\r\n]/g, "");
+    const name = displayName(key, obj.customMetadata?.name).replace(/["\r\n]/g, "");
     const inline = url.searchParams.get("view") === "1";
     return new Response(obj.body, { headers: {
       "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",

@@ -11,7 +11,7 @@ node weekly.mjs             # build and upload to Ready to post
 ```
 
 Posts each week:
-1. **Deal Drop**: 15-second beat-synced ad of the week's best real fare (vertical + square). Trip
+1. **Deal Drop** (`[REEL] flightdeal<city>9x16.mp4`, `[POST] flightdeal<city>4x4.mp4`): 15-second beat-synced ad of the week's best real fare (vertical + square). Trip
    photos become the background and trip clips play behind the intro.
 2. **Trip edit**: your trip clips and photos cut on the beat, then a real deal and the end card
    (when the library has trip media).

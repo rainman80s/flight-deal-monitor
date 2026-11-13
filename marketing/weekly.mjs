@@ -149,12 +149,14 @@ const link = `https://fareradar.cc/?utm_source=instagram&utm_medium=social&utm_c
 const tags = "#Seattle #Portland #SEA #PDX #cheapflights #flightdeals #PNW";
 const credit = `Music: licensed beat "${beatFile.key.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-[a-z0-9]+-/, "").replace(/\.[^.]+$/, "")}"`;
 const posts = [];
+const slug = (city) => shortCity(city).normalize("NFD").replace(/[^A-Za-z]/g, "").toLowerCase();
 
 const H = toDeal(hero);
 const adProps = { beats: grid.beats, audio: "cut.mp3", hero: H, list: listDeals.map(toDeal), alert: toDeal(alertDeal),
   photo: photos[0] || null, clips: clips.slice(0, 4), month };
-posts.push({ files: [render("DealDropVertical", adProps, "1 Deal Drop (Reels, TikTok, Stories).mp4"),
-  render("DealDropSquare", adProps, "1 Deal Drop (feed, square).mp4")],
+const heroSlug = `flightdeal${slug(H.to)}`;
+posts.push({ slug: heroSlug, files: [render("DealDropVertical", adProps, `[REEL] ${heroSlug}9x16.mp4`),
+  render("DealDropSquare", adProps, `[POST] ${heroSlug}4x4.mp4`)],
   caption: `${H.from} → ${H.to} for $${H.price} round trip${H.usual ? ` (usually about $${H.usual})` : ""}. ✈️\n\n`
     + `${H.dates}${H.airline ? ` on ${H.airline}` : ""}. We check fares out of SEA and PDX every hour, and this is the best one this week.\n\n`
     + `More this week:\n${listDeals.slice(0, 4).map((d) => `• ${d.origin} → ${shortCity(d.destination_city)} $${Math.round(d.price)}`).join("\n")}\n\n`
@@ -163,7 +165,7 @@ posts.push({ files: [render("DealDropVertical", adProps, "1 Deal Drop (Reels, Ti
 if (clips.length || photos.length > 1) {
   const T = toDeal(tripDeal);
   posts.push({ files: [render("TripEdit", { beats: grid.beats, audio: "cut.mp3", clips, photos: photos.slice(1).length ? photos.slice(1) : photos,
-    deal: T, caption: "Go somewhere." }, "2 Trip edit (Reels, TikTok).mp4")],
+    deal: T, caption: "Go somewhere." }, `[REEL] tripedit${slug(T.to)}9x16.mp4`)], slug: `tripedit${slug(T.to)}`,
   caption: `This is why we built Fare Radar. 🌎\n\nThis week: ${T.from} → ${T.to} for $${T.price} round trip (${T.dates}).\n\n`
     + `Free alerts when fares out of Seattle and Portland drop: ${link}\n\n${tags}\n${credit}` });
 }
@@ -178,7 +180,8 @@ if (head) {
     const obj = cf(`/accounts/${account}/r2/buckets/${BUCKET}/objects/${encodeURIComponent(head.key)}`);
     const by = obj?.result?.custom_metadata?.by || null;
     const name = by ? by.charAt(0) + by.slice(1).toLowerCase() : null;
-    posts.push({ files: [render("Founder", { video: "talk.mp4", seconds: secs, name }, "3 Founder clip (Reels, TikTok).mp4")],
+    const who = (name || "founder").toLowerCase().replace(/[^a-z]/g, "");
+    posts.push({ slug: `talkinghead${who}`, files: [render("Founder", { video: "talk.mp4", seconds: secs, name }, `[REEL] talkinghead${who}9x16.mp4`)],
       caption: `${name ? `${name} here. ` : ""}We built Fare Radar because cheap flights out of Seattle and Portland are out there, you just have to catch them.\n\n`
         + `It's free: ${link}\n\n${tags}` });
     mark(head);
@@ -187,12 +190,13 @@ if (head) {
 
 // ---------- deliver ----------
 const plan = [`Fare Radar posts for the week of ${today}`, "",
-  ...posts.map((p, i) => `${i + 1}. ${p.files.join(" + ")}`), "",
+  ...posts.map((p, i) => `${i + 1}. ${p.files.join(" + ")}  (caption: [CAPTION] ${p.slug}.txt)`), "",
+  "[REEL] = 9x16 vertical for Reels, TikTok and Stories. [POST] = 4x4 square for the feed.", "",
   "Suggested schedule: post 1 Monday evening, post 2 Wednesday, post 3 Friday. Put the link in your bio.",
-  "Also here: Talking-head scripts to record.txt. Film one or more this week and drop them in Talking heads.",
+  "[SCRIPT] files: talking heads to film this week. Drop the recordings in Talking heads.",
   `Link for bio: ${link}`, "", "Captions are in the matching .txt files."].join("\n");
-writeFileSync(join(OUT, "0 This week's plan.txt"), plan);
-posts.forEach((p, i) => writeFileSync(join(OUT, `${i + 1} caption.txt`), p.caption));
+writeFileSync(join(OUT, "[PLAN] weekplan.txt"), plan);
+posts.forEach((p) => writeFileSync(join(OUT, `[CAPTION] ${p.slug}.txt`), p.caption));
 
 // ---------- talking-head scripts to record ----------
 // Short scripts built from this week's real deals, for Ran and Brock to film and drop into
@@ -207,39 +211,43 @@ const d2 = toDeal(d2raw);
 const d3 = toDeal(d3raw);
 const off = (d) => (d.usual ? Math.round((1 - d.price / d.usual) * 100) : null);
 const scripts = [
-  { title: "The deal of the week (20–30 sec)", lines: [
+  { file: `flightdeal${slug(d1.to)}script`, title: "The deal of the week (20–30 sec)", lines: [
     `HOOK (look straight at the camera, say it fast): "${d1.from} to ${d1.to}. ${d1.price} bucks. Round trip."`,
     d1.usual ? `"That route usually runs about $${d1.usual}. That's ${off(d1)}% off."` : `"That's one of the cheapest fares we've seen on that route."`,
     `"${d1.dates}${d1.airline ? `, on ${d1.airline}` : ""}. Fares like this don't last, so if you want it, book it this week."`,
     `CTA: "We find these every hour out of Seattle and Portland. Alerts are free. Link's in our bio."`,
   ] },
-  { title: "Why we built it (30–40 sec)", lines: [
+  { file: "missionvisionscript", title: "Why we built it (30–40 sec)", lines: [
     `HOOK: "We got tired of checking flight prices every single day. So we built something that does it for us."`,
     `"Fare Radar checks round trips out of SEA and PDX every hour, compares them to what that route normally costs, and only emails you when something's actually cheap."`,
     `"Like this week: ${d2.from} to ${d2.to} for $${d2.price}${d2.airline ? ` on ${d2.airline}` : ""}."`,
     `CTA: "No ads, no booking fees. It's free. Link's in our bio."`,
   ] },
-  { title: "Quick tip (20–30 sec)", lines: [
+  { file: "quicktipscript", title: "Quick tip (20–30 sec)", lines: [
     `HOOK: "Here's how to actually catch a cheap flight out of ${d3.origin === "PDX" ? "Portland" : "Seattle"}."`,
     `"Be flexible by a day or two. The same trip can cost a lot less if you leave midweek instead of on a Friday."`,
     `"And when you see a good fare, book it. In the US you can usually cancel within 24 hours for a full refund."`,
     `CTA: "This week we found ${d3.from} to ${d3.to} for $${d3.price}. We post these every week. Follow for more."`,
   ] },
 ];
-const scriptText = [`Talking-head scripts to record (week of ${today})`, "",
-  "How to film: phone vertical at eye level, face a window for light, quiet room. One take each is fine.",
+const howTo = ["How to film: phone vertical at eye level, face a window for light, quiet room. One take is fine.",
   "Talk like you're telling a friend, not reading. Pause a second before you start and after you finish.",
-  "Upload to Admin → Content → Talking heads. Next Sunday's run turns each one into a branded post.", "",
-  ...scripts.flatMap((sc, i) => [`${i + 1}. ${sc.title}`, ...sc.lines.map((l) => `   ${l}`), ""]),
-  "Prices are this week's real deals. If you film more than a few days later, check the fare on",
-  "fareradar.cc and use the current price, or leave the exact number out."].join("\n");
-writeFileSync(join(OUT, "Talking-head scripts to record.txt"), scriptText);
+  "Upload to Admin → Content → Talking heads. Next Sunday's run turns it into a branded post.", ""];
+const scriptFiles = scripts.map((sc) => {
+  const name = `[SCRIPT] ${sc.file}.txt`;
+  writeFileSync(join(OUT, name), [`${sc.title} (week of ${today})`, "", ...howTo, ...sc.lines, "",
+    "Prices are this week's real deals. If you film more than a few days later, check the fare on",
+    "fareradar.cc and use the current price, or leave the exact number out."].join("\n"));
+  return name;
+});
 
-const uploads = [["0 This week's plan.txt", "text/plain"], ["Talking-head scripts to record.txt", "text/plain"], ...posts.flatMap((p, i) => [...p.files.map((f) => [f, "video/mp4"]), [`${i + 1} caption.txt`, "text/plain"]])];
+const uploads = [["[PLAN] weekplan.txt", "text/plain"],
+  ...posts.flatMap((p) => [...p.files.map((f) => [f, "video/mp4"]), [`[CAPTION] ${p.slug}.txt`, "text/plain"]]),
+  ...scriptFiles.map((f) => [f, "text/plain"])];
 if (DRY) { log(`dry run: ${uploads.length} files in ${OUT}`); process.exit(0); }
 for (const [file, type] of uploads) {
   const rand = Math.random().toString(36).slice(2, 8);
-  put(`ready/${today}-${rand}-${today} ${file}`, join(OUT, file), type);
+  put(`ready/${today}-${rand}-${file}`, join(OUT, file), type);
 }
 writeFileSync(join(WORK, "used.json"), JSON.stringify(used, null, 1));
 put(USED_KEY, join(WORK, "used.json"), "application/json");
