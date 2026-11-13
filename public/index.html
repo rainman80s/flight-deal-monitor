@@ -594,9 +594,9 @@
   <section id="view-privacy" class="view page" aria-labelledby="privacy-title" hidden>
     <article class="prose">
       <h1 id="privacy-title">Privacy policy</h1>
-      <p class="fine">Effective November 11, 2026</p>
-      <p class="callout-p">The short version: we collect as little as we can. No analytics, no ads, no tracking
-        cookies, and we never sell or share your personal information.</p>
+      <p class="fine">Effective November 13, 2026</p>
+      <p class="callout-p">The short version: we collect as little as we can. No ads, no tracking across other
+        sites, only cookie-free visit counts, and we never sell or share your personal information.</p>
 
       <h2>What we collect</h2>
       <ul>
@@ -631,7 +631,12 @@
       <p>The site sets a sign-in cookie, <code>__Host-fr_session</code>, only when you sign in. It keeps you signed in
         for up to 30 days (or until 14 days of not visiting) and is used for nothing else. When you choose "Continue
         with Google" or "Continue with Apple", a second cookie lasts 10 minutes to check the sign-in comes back to the
-        same browser. Visitors who don't sign in get no cookies, which is why there's no cookie banner.</p>
+        same browser. If you arrive through one of our own links (for example from our Instagram), a small cookie,
+        <code>fr_src</code>, remembers that source name for 30 days so we can tell which posts bring people in. It
+        holds only the source name, nothing about you, and isn't shared with anyone. None of these are used for ads,
+        which is why there's no cookie banner.</p>
+      <p><b>Visit counts.</b> We use Cloudflare Web Analytics to count page views and see which pages are popular.
+        It doesn't use cookies, doesn't track you across sites, and doesn't build a profile of you.</p>
 
       <h2>Services that handle data for us</h2>
       <ul>
@@ -902,5 +907,7 @@
   </template>
 
   <script src="/app.js" defer></script>
+  <!-- Cloudflare Web Analytics: cookie-free visit counts -->
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "0103c577c19a48f7bcdd841f66165d2d"}'></script>
 </body>
 </html>

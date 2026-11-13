@@ -173,7 +173,7 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
       }
       // Always a member at sign-up: nobody has proved they own this inbox yet. An owner's email
       // becomes admin only once verified (promoteIfOwner).
-      const u = await users.create({ email, password, name, origins: cfg.origins });
+      const u = await users.create({ email, password, name, origins: cfg.origins, source: signupSource(req) });
       const sent = await sendVerification(cfg, users, u);
       return signIn(users, u, req, { verification_sent: sent });
     }
@@ -272,7 +272,7 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
         if (!flow) return redirect("/#signin?error=expired", clearOauthCookie());
         try {
           const id = await finishFlow(cfg, flow, params.get("code") ?? "", params.get("user"));
-          const u = await oauthUser(cfg, users, id);
+          const u = await oauthUser(cfg, users, id, signupSource(req));
           await users.recordLogin(u.id);
           const token = await users.createSession(u.id, req.headers.get("User-Agent"));
           const h = new Headers({ Location: "/#account" });
@@ -443,7 +443,14 @@ function rulesView(cfg: Config, u: User) {
  * (provider-verified) email, else a new one. Linking to an existing account whose email was never
  * verified also clears its password and sessions: whoever set that password may not own the inbox.
  */
-async function oauthUser(cfg: Config, users: UserStore, id: { provider: Provider; subject: string; email: string; name: string | null }) {
+/** The marketing source a visitor arrived with (set by the page from ?utm_source= or ?ref=). */
+export function signupSource(req: Request): string | null {
+  const v = (readCookie(req, "fr_src") ?? "").toLowerCase();
+  return /^[a-z0-9_.-]{1,40}$/.test(v) ? v : null;
+}
+
+async function oauthUser(cfg: Config, users: UserStore, id: { provider: Provider; subject: string; email: string; name: string | null },
+  source: string | null = null) {
   const linked = await users.byIdentity(id.provider, id.subject);
   if (linked) return linked;
   const existing = await users.byEmail(id.email);
@@ -460,7 +467,7 @@ async function oauthUser(cfg: Config, users: UserStore, id: { provider: Provider
     return (await users.byId(existing.id))!;
   }
   const isOwner = cfg.contacts.find((c) => c.email && normalizeEmail(c.email) === id.email);
-  const u = await users.create({ email: id.email, name: id.name, emailVerified: true, origins: cfg.origins,
+  const u = await users.create({ email: id.email, name: id.name, emailVerified: true, origins: cfg.origins, source,
     ...(isOwner ? { role: "admin" as const, contact: isOwner.name } : {}) });
   await users.linkIdentity(id.provider, id.subject, u.id);
   return u;

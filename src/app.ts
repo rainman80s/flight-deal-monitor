@@ -59,8 +59,8 @@ const json = (data: unknown, status = 200) =>
  * fonts (no third-party code at all); inline styles are allowed for the small server-rendered pages.
  */
 const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-    + "img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self' https://appleid.apple.com; "
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; "
+    + "img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com; form-action 'self' https://appleid.apple.com; "
     + "frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
   "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
   "X-Content-Type-Options": "nosniff",

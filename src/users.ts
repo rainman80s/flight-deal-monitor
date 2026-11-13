@@ -122,17 +122,17 @@ export class UserStore {
   }
 
   async create(o: { email: string; password?: string | null; name?: string | null; role?: Role; contact?: string | null;
-                    emailVerified?: boolean; mustChangePassword?: boolean; origins?: string[] }): Promise<User> {
+                    emailVerified?: boolean; mustChangePassword?: boolean; origins?: string[]; source?: string | null }): Promise<User> {
     const email = normalizeEmail(o.email);
     await this.db.prepare(
       `INSERT INTO users(email_index,email_enc,name_enc,password_hash,role,contact,email_verified,must_change_password,
-         created_at,password_changed_at,origins) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+         created_at,password_changed_at,origins,signup_source) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).bind(
       await this.vault.emailIndex(email), await this.vault.seal("email", email),
       o.name ? await this.vault.seal("name", o.name) : null,
       o.password ? await this.vault.hashPassword(o.password) : null,
       o.role ?? "member", o.contact ?? null, o.emailVerified ? 1 : 0, o.mustChangePassword ? 1 : 0,
-      nowIso(), o.password ? nowIso() : null, JSON.stringify(o.origins ?? ["SEA", "PDX"]),
+      nowIso(), o.password ? nowIso() : null, JSON.stringify(o.origins ?? ["SEA", "PDX"]), o.source ?? null,
     ).run();
     return (await this.byEmail(email))!;
   }
@@ -193,7 +193,10 @@ export class UserStore {
   async counts() {
     const r = await this.db.prepare(`SELECT COUNT(*) AS users, SUM(pro_waitlist) AS waitlist,
       SUM(role='tester') AS testers, SUM(subscription_status IN ('active','trialing')) AS paying FROM users`).first<Record<string, number | null>>();
-    return { users: r?.users ?? 0, waitlist: r?.waitlist ?? 0, testers: r?.testers ?? 0, paying: r?.paying ?? 0 };
+    const src = await this.db.prepare(`SELECT COALESCE(signup_source, 'direct') AS source, COUNT(*) AS n FROM users
+      WHERE role != 'admin' GROUP BY 1 ORDER BY n DESC LIMIT 12`).all<{ source: string; n: number }>();
+    return { users: r?.users ?? 0, waitlist: r?.waitlist ?? 0, testers: r?.testers ?? 0, paying: r?.paying ?? 0,
+      sources: src.results };
   }
 
   async setRules(id: number, rules: unknown | null) {

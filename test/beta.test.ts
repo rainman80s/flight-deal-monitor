@@ -100,6 +100,20 @@ describe("beta testers and the admin panel", () => {
   });
 });
 
+describe("sign-up sources", () => {
+  it("credits a new account to the channel in its fr_src cookie, and ignores junk", async () => {
+    const s = site();
+    const up = (email: string, cookie: string) => s.call("POST", "/api/auth/signup",
+      { email, password: "correct horse battery staple" }, { Cookie: cookie });
+    expect((await up("ig@example.com", "fr_src=instagram")).status).toBe(200);
+    expect((await up("junk@example.com", "fr_src=<script>")).status).toBe(200);
+    expect((await up("plain@example.com", "")).status).toBe(200);
+    const admin = await sessionFor(s.cfg, { role: "admin", contact: "RAN", email: "ran@example.com" });
+    const c = (await s.call("GET", "/api/admin/testers", undefined, { Cookie: admin.cookie })).body.counts;
+    expect(c.sources).toEqual(expect.arrayContaining([{ source: "instagram", n: 1 }, { source: "direct", n: 2 }]));
+  });
+});
+
 describe("booking links", () => {
   const d = { origin: "SEA", destination: "JFK", depart_date: "2027-01-14", return_date: "2027-01-21" };
   it("Google Flights links always go to Google for the deal's own route and dates", () => {

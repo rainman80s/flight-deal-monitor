@@ -33,6 +33,15 @@
   };
   const flash = (node, text, kind) => { node.className = `${node.className.split(" ")[0]}${kind ? ` ${kind}` : ""}`; node.textContent = text; };
 
+  // Remember where a visitor came from (first touch, 30 days) so sign-ups can be credited to a channel.
+  try {
+    const q = new URLSearchParams(location.search);
+    const src = (q.get("utm_source") || q.get("ref") || "").toLowerCase().replace(/[^a-z0-9_.-]/g, "").slice(0, 40);
+    if (src && !/(?:^|; )fr_src=/.test(document.cookie)) {
+      document.cookie = `fr_src=${src}; Max-Age=${30 * 86400}; Path=/; SameSite=Lax; Secure`;
+    }
+  } catch { /* cookies blocked */ }
+
   const state = { origin: "", sort: "value", meta: null, deals: [], me: { signed_in: false }, rules: null, note: null };
   const isMember = () => !!state.me.entitled;
   const isAdmin = () => state.me.role === "admin" && !state.me.must_change_password;
@@ -1310,7 +1319,8 @@
       const out = await api("/api/admin/testers");
       const c = out.counts;
       $("#admin-counts").textContent = `${c.users} account${c.users === 1 ? "" : "s"} · ${c.testers} beta tester${c.testers === 1 ? "" : "s"}`
-        + ` · ${c.waitlist} on the Pro launch list${c.paying ? ` · ${c.paying} paying` : ""}`;
+        + ` · ${c.waitlist} on the Pro launch list${c.paying ? ` · ${c.paying} paying` : ""}`
+        + (c.sources?.length ? `. Sign-ups by source: ${c.sources.map((s) => `${s.source} ${s.n}`).join(", ")}` : "");
       const list = $("#admin-testers");
       list.replaceChildren(...(out.testers.length ? out.testers.map((u) => adminRow(u, () => renderAdmin()))
         : [el("li", "fine", "No beta testers yet. Find an account above to add one.")]));
