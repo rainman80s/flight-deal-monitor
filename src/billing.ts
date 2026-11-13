@@ -33,6 +33,13 @@ const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
 const base = (cfg: Config) => secret(cfg, "PUBLIC_BASE_URL").replace(/\/$/, "");
+/**
+ * The Pro launch switch. Until PRO_LAUNCHED is "true", nobody can start a subscription and the site
+ * shows Pro as "coming soon"; admins and beta testers still get every feature. Existing
+ * subscriptions (if any) keep working either way.
+ */
+export const proLaunched = (cfg: Config) => String(cfg.env.PRO_LAUNCHED ?? "").toLowerCase() === "true";
+
 export const stripeEnabled = (cfg: Config) => typeof cfg.env.STRIPE_SECRET_KEY === "string" && !!cfg.env.STRIPE_SECRET_KEY;
 
 /** Flattens {a: {b: 1}, c: [x]} into Stripe's form encoding: a[b]=1&c[0]=x. */
@@ -174,7 +181,8 @@ export async function billingRoute(req: Request, url: URL, deps: Deps): Promise<
   const u = s.user;
 
   if (p === "/api/billing/checkout" && req.method === "POST") {
-    if (u.role === "admin") return json({ ok: false, error: "Admin accounts have full access already." }, 400);
+    if (!proLaunched(cfg)) return json({ ok: false, code: "pro_coming_soon", error: "Pro isn't available yet. Join the list on your Account page and we'll email you when it launches." }, 403);
+    if (u.role === "admin" || u.role === "tester") return json({ ok: false, error: "Your account has full access already." }, 400);
     if (entitled(u)) return json({ ok: false, error: "You're already a member. Use Manage billing to make changes." }, 400);
     const price = await priceId(cfg);
     if (!price) return json({ ok: false, error: "Payments aren't set up yet. Check back soon." }, 503);

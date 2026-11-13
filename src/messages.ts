@@ -80,7 +80,9 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
     `Deal code ${d.code}`,
   ];
   const text = `${fake}Flight deal\n\n${lines.join("\n")}\n\n${meaning}\n\nBuy: ${buyUrl}\nSkip: ${skipUrl}\n`
-    + (d.booking_url ? `\nSee it on Google Flights: ${d.booking_url}\n` : "") + textFooter(f, reason);
+    + `\nSee it on Google Flights: ${dealGoogleUrl(d)}\n`
+    + (d.booking_url && !isGoogleFlights(d.booking_url) ? `Book on ${bookingSite(d.booking_url)}: ${d.booking_url}\n` : "")
+    + textFooter(f, reason);
   const body = (d.is_fake ? callout("Fake test fare: not a real flight.") : "")
     + priceLine(`$${d.price.toFixed(0)}`, `round trip · ${tripDays(d)} days`)
     + callout(`Why it's a deal: ${escHtml(why)}`)
@@ -89,7 +91,9 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
     + `<div style="margin:22px 0 4px">${button(buyUrl, "Buy")}${button(skipUrl, "Skip", "secondary")}</div>`
     + fine(escHtml(meaning))
     + fine(`${d.origin}–${d.destination} · deal ${escHtml(d.code)}`
-      + (d.booking_url ? ` · <a href="${escHtml(d.booking_url)}" style="color:#7d8a8c">See it on Google Flights</a>` : ""));
+      + ` · <a href="${escHtml(dealGoogleUrl(d))}" style="color:#7d8a8c">See it on Google Flights</a>`
+      + (d.booking_url && !isGoogleFlights(d.booking_url)
+        ? ` · <a href="${escHtml(d.booking_url)}" style="color:#7d8a8c">Book on ${escHtml(bookingSite(d.booking_url))}</a>` : ""));
   const html = layout(f, {
     preheader: `${why}. ${shortDate(d.depart_date)} to ${shortDate(d.return_date)}, ${stops(d.outbound_stops)}.`,
     eyebrow: `${d.is_fake ? "Test · " : ""}Deal alert · ${kind === "international" ? "International" : "Domestic"}`,
@@ -97,6 +101,21 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
     body, reason,
   });
   return { subject, text, html };
+}
+
+/** True for Google Flights links (what SerpApi returns); airline and agency deep links are not. */
+export const isGoogleFlights = (url: string | null | undefined) =>
+  !!url && /^https:\/\/(www\.)?google\.com\/travel\/flights/.test(url);
+
+/** Where a deal's booking link really goes, for labels: "Google Flights" or the site's host. */
+export function bookingSite(url: string): string {
+  if (isGoogleFlights(url)) return "Google Flights";
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "the booking site"; }
+}
+
+/** The Google Flights search for a deal: always Google, whatever the provider's own link is. */
+export function dealGoogleUrl(d: { origin: string; destination: string; depart_date: string; return_date: string; booking_url?: string | null }) {
+  return isGoogleFlights(d.booking_url) ? d.booking_url! : googleFlightsUrl(d.origin, d.destination, d.depart_date, d.return_date);
 }
 
 export function googleFlightsUrl(origin: string, dest: string, depart: string, ret: string): string {

@@ -28,6 +28,9 @@ migrations_dir = "migrations"
 
 [vars]
 PUBLIC_BASE_URL = "https://fareradar.cc"
+# Pro launch switch. "false": the site is free, Pro shows "coming soon", nobody can subscribe;
+# admins and beta testers still get everything. Set to "true" (and deploy) to open paid Pro.
+PRO_LAUNCHED = "false"
 
 [observability]
 enabled = true

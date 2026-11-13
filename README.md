@@ -149,6 +149,12 @@ Setup:
 
 ## Website, accounts and membership
 
+**Free launch / Pro switch.** `PRO_LAUNCHED` in `wrangler.toml` controls paid Pro. While it's `"false"`
+the site is free: everyone signed in gets deal alerts (on the site's rules), Pro features (own logic,
+alert filters, route search) say "coming soon" with a "Notify me" list, and checkout is refused.
+Admins and beta testers (role `tester`, granted from the Admin page by exact email) get every Pro
+feature. To open Pro: set it to `"true"` and deploy; Stripe is already configured.
+
 `public/` holds the static site (no build step), bundled into the Worker.
 
 **Free for everyone:** the two deal columns (10 shown, the rest scroll inside each card) and a

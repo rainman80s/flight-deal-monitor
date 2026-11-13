@@ -23,7 +23,7 @@ import { ResendEmailer } from "./notify";
 import { paywall } from "./account";
 import { verifyUnsubscribe } from "./alerts";
 import { currentSession, currentUser, sameOrigin } from "./auth";
-import { PRICE_CENTS, stripeEnabled, TRIAL_DAYS } from "./billing";
+import { PRICE_CENTS, proLaunched, stripeEnabled, TRIAL_DAYS } from "./billing";
 import { EMAIL_RE } from "./crypto";
 import { providersEnabled } from "./oauth";
 import { entitled, UserStore } from "./users";
@@ -107,7 +107,7 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
       },
       auth: { providers: providersEnabled(cfg) },
       rules: { domestic: toRaw(cfg.cats.domestic), international: toRaw(cfg.cats.international) },
-      billing: { enabled: stripeEnabled(cfg), price: `$${PRICE_CENTS / 100}/month`, trial_days: TRIAL_DAYS },
+      billing: { enabled: stripeEnabled(cfg) && proLaunched(cfg), launched: proLaunched(cfg), price: `$${PRICE_CENTS / 100}/month`, trial_days: TRIAL_DAYS },
       stats: await siteStats(cfg),
       last_checked_at: await store.getState("last_cycle_at"),
     }, 200, { "Cache-Control": "public, max-age=60" });

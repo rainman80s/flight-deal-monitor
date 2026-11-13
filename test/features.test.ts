@@ -56,7 +56,7 @@ async function signed(payload: string, secret: string) {
 }
 
 describe("free trial", () => {
-  const env = { STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_t", STRIPE_PRICE_ID: "price_8" };
+  const env = { STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_t", STRIPE_PRICE_ID: "price_8", PRO_LAUNCHED: "true" };
 
   it("first-time members get 7 days free, with the charge spelled out at checkout", async () => {
     const s = site(env);

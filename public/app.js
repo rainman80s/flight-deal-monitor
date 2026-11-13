@@ -11,7 +11,9 @@
   const stops = (n) => (n === 0 ? "nonstop" : `${n} stop${n > 1 ? "s" : ""}`);
   const stopsPair = (d) => d.outbound_stops === d.return_stops
     ? `${stops(d.outbound_stops)} both ways` : `${stops(d.outbound_stops)} / ${stops(d.return_stops)}`;
-  const isGoogle = (url) => !url || /google\.com\/travel/.test(url);
+  const isGoogle = (url) => typeof url === "string" && /^https:\/\/(www\.)?google\.com\/travel\/flights/.test(url);
+  const googleUrl = (o, dst, dep, ret) => `https://www.google.com/travel/flights?q=${encodeURIComponent(
+    `Flights from ${o} to ${dst} on ${dep} through ${ret}`)}`;
   const safeUrl = (u) => (typeof u === "string" && /^https:\/\//.test(u) ? u : null);
 
   const ago = (iso) => {
@@ -33,6 +35,9 @@
 
   const state = { origin: "", sort: "value", meta: null, deals: [], me: { signed_in: false }, rules: null, note: null };
   const isMember = () => !!state.me.entitled;
+  const isAdmin = () => state.me.role === "admin" && !state.me.must_change_password;
+  /** Pro (paid) features are switched on for everyone only after launch; until then the site says "coming soon". */
+  const proLive = () => !!state.meta?.billing?.launched;
   const canBook = () => state.me.role === "admin" && !!state.me.booking;
 
   // ---------------- API ----------------
@@ -53,7 +58,7 @@
   const stripeUrl = (u) => (typeof u === "string" && /^https:\/\/(checkout|billing)\.stripe\.com\//.test(u) ? u : null);
 
   // ---------------- routing ----------------
-  const VIEWS = ["browse", "signup", "account", "logic", "about", "contact", "privacy", "terms", "accessibility"];
+  const VIEWS = ["browse", "signup", "account", "logic", "admin", "about", "contact", "privacy", "terms", "accessibility"];
   function route() {
     const [want, query = ""] = location.hash.slice(1).split("?");
     const q = new URLSearchParams(query);
@@ -89,6 +94,7 @@
     if (tab === "account") renderAccount();
     if (tab === "logic") renderLogic();
     if (tab === "signup") renderAlerts();
+    if (tab === "admin") renderAdmin();
     $(".segmented").dataset.active = tab;
     $$(".segmented a").forEach((a) => (a.dataset.tab === tab
       ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
@@ -124,6 +130,7 @@
     try {
       const m = await (await fetch("/api/meta")).json();
       state.meta = m;
+      document.body.classList.toggle("pro-soon", !m.billing?.launched);
       $("#n-dest").textContent = m.destinations;
       $("#last-checked").textContent = m.last_checked_at ? `Fares updated ${ago(m.last_checked_at)}` : "";
       $("#demo-note").hidden = !m.demo;
@@ -159,7 +166,15 @@
     const b = $("#plan-cta");
     if (!b) return;
     $(".plan:not(.plan-member) .btn").hidden = !!state.me.signed_in;
-    if (isMember()) { b.textContent = state.me.role === "admin" ? "You have full access" : "You're a member"; b.disabled = true; return; }
+    if (isMember()) {
+      b.textContent = state.me.role === "admin" ? "You have full access" : state.me.role === "tester" ? "You're a beta tester" : "You're a member";
+      b.disabled = true; return;
+    }
+    if (!proLive()) {
+      b.disabled = !!state.me.pro_waitlist;
+      b.textContent = !state.me.signed_in ? "Create a free account" : state.me.pro_waitlist ? "You're on the list ✓" : "Notify me when Pro launches";
+      return;
+    }
     b.disabled = false;
     b.textContent = ctaLabel();
   }
@@ -292,6 +307,15 @@
     QR: ["Qatar Airways", "https://www.qatarairways.com"], NZ: ["Air New Zealand", "https://www.airnewzealand.com"],
     QF: ["Qantas", "https://www.qantas.com"], FJ: ["Fiji Airways", "https://www.fijiairways.com"],
   };
+  /** "flyfrontier.com" → "Frontier", else the bare host name. */
+  function siteName(url) {
+    let host = "";
+    try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return "the booking site"; }
+    for (const [name, home] of Object.values(AIRLINES)) {
+      try { if (new URL(home).hostname.replace(/^www\./, "") === host) return name; } catch { /* skip */ }
+    }
+    return host;
+  }
   const airlineNames = (codes) => (codes || []).map((c) => AIRLINES[c]?.[0] || c).join(", ");
 
   function openDeal(d) {
@@ -324,18 +348,23 @@
       : d.estimate ? "This price comes from a fare calendar or Google's explore view. The exact fare and flight times show when you open it." : "";
     $("#deal-found-line").textContent = `Found ${ago(d.found_at)}.`;
 
+    // Buttons go where their labels say: "Google Flights" is always Google (for this exact route and
+    // dates); a provider's deep link to an airline or agency is labeled with that site's own name.
     const first = (d.airlines || []).find((c) => AIRLINES[c]);
+    const deep = safeUrl(d.booking_url) && !isGoogle(d.booking_url) ? d.booking_url : null;
     const air = $("#deal-airline-btn");
-    if (first && !d.is_fake) {
+    if (!d.is_fake && deep) {
+      air.hidden = false;
+      air.textContent = `Book on ${siteName(deep)}`;
+      air.href = deep;
+    } else if (!d.is_fake && first) {
       air.hidden = false;
       air.textContent = `Go to ${AIRLINES[first][0]}`;
       air.href = AIRLINES[first][1];
     } else air.hidden = true;
     const g = $("#deal-google-btn");
-    const gUrl = safeUrl(d.booking_url) || `https://www.google.com/travel/flights?q=${encodeURIComponent(
-      `Flights from ${d.origin} to ${d.destination} on ${d.depart_date} through ${d.return_date}`)}`;
-    g.href = gUrl;
-    g.className = first && !d.is_fake ? "btn glass-btn" : "btn primary";
+    g.href = safeUrl(d.booking_url) && isGoogle(d.booking_url) ? d.booking_url : googleUrl(d.origin, d.destination, d.depart_date, d.return_date);
+    g.className = air.hidden ? "btn primary" : "btn glass-btn";
     const buy = $("#deal-buy");
     buy.hidden = !(canBook() && !d.is_fake);
     buy.onclick = () => { dlg.close(); openBook(tripOf(d)); };
@@ -388,6 +417,30 @@
   function fillLock(node, feature) {
     node.replaceChildren();
     const signedIn = !!state.me.signed_in;
+    if (!proLive()) {
+      node.append(el("h3", "", `${feature} is part of Pro, coming soon`));
+      node.append(el("p", "", signedIn
+        ? "Pro adds your own logic, alerts for just the places you pick, and checking any route across a whole month. Want to hear when it opens?"
+        : "Pro adds your own logic, alert filters and route search. It isn't open yet, but a free account gets deal alerts by email right now."));
+      const actions = el("div", "t-actions");
+      if (signedIn) {
+        const b = el("button", "btn primary", state.me.pro_waitlist ? "You're on the list ✓" : "Notify me when Pro launches");
+        b.type = "button";
+        b.disabled = !!state.me.pro_waitlist;
+        b.addEventListener("click", () => joinWaitlist(b, node));
+        actions.append(b);
+      } else {
+        const a = el("button", "btn primary", "Create a free account");
+        a.type = "button";
+        a.addEventListener("click", () => openAuth("signup"));
+        const s2 = el("button", "btn glass-btn", "Sign in");
+        s2.type = "button";
+        s2.addEventListener("click", () => openAuth("signin"));
+        actions.append(a, s2);
+      }
+      node.append(actions, el("p", "t-msg lock-msg"));
+      return;
+    }
     node.append(el("h3", "", `${feature} is for members`));
     const trial = trialDays();
     const offer = trial ? `Try it free for ${trial} days, then $8/month.` : "Membership is $8/month.";
@@ -431,6 +484,19 @@
       const url = stripeUrl(out.url);
       if (!url) throw new ApiError("Checkout isn't available right now.", 0, {});
       location.href = url;
+    } catch (e) { flash(msg, e.message, "err"); btn.disabled = false; }
+  }
+
+  /** Puts the signed-in person on the Pro launch list. */
+  async function joinWaitlist(btn, where) {
+    const msg = $(".lock-msg, .t-msg", where) || $("#mem-msg");
+    btn.disabled = true;
+    try {
+      await api("/api/account/pro-waitlist", "PUT", { on: true });
+      state.me.pro_waitlist = true;
+      btn.textContent = "You're on the list ✓";
+      flash(msg, "Thanks! We'll email you once when Pro opens.", "ok");
+      renderPlanCta();
     } catch (e) { flash(msg, e.message, "err"); btn.disabled = false; }
   }
 
@@ -592,6 +658,8 @@
       btn.append(el("span", "acct-who", `${state.me.name} · `), "Account");
     } else btn.textContent = "Sign in";
     if (state.me.must_change_password) openPw();
+    $("#nav-admin").hidden = !isAdmin();
+    $(".segmented").classList.toggle("has-admin", isAdmin());
     state.rules = null;
     if (isMember()) {
       try { state.rules = (await api("/api/account/rules")).categories; } catch { /* site rules */ }
@@ -758,8 +826,7 @@
     $("#b-depart").min = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
     $("#b-pct").textContent = b.max_price_increase_percent ?? 5;
     const g = $("#b-google");
-    g.href = `https://www.google.com/travel/flights?q=${encodeURIComponent(
-      `Flights from ${t.origin} to ${t.destination} on ${t.depart} through ${t.ret}`)}`;
+    g.href = googleUrl(t.origin, t.destination, t.depart, t.ret);
 
     const mode = $("#book-mode");
     mode.hidden = b.test_mode === null || b.test_mode === undefined;
@@ -948,8 +1015,14 @@
     const subscribe = $("#mem-subscribe");
     const manage = $("#mem-manage");
     subscribe.hidden = true;
+    const wait = $("#mem-waitlist");
+    wait.hidden = true;
     manage.hidden = !sub.can_manage;
-    if (me.role === "admin") {
+    $("#mem-title").textContent = proLive() ? "Membership" : "Your plan";
+    if (me.role === "tester") {
+      pill.textContent = "Beta tester";
+      text.textContent = "You have every Pro feature free while we test it. Thanks for helping!";
+    } else if (me.role === "admin") {
       pill.textContent = "Admin";
       text.textContent = "Full access at no charge, plus booking and the site-wide settings.";
     } else if (me.entitled) {
@@ -960,6 +1033,12 @@
         : sub.status === "trialing" && sub.renews_at
           ? `Your free trial runs until ${longDate(sub.renews_at)}. After that it's ${sub.price} unless you cancel in Manage billing before then. We'll email you 3 days before.`
         : sub.renews_at ? `Renews on ${longDate(sub.renews_at)} at ${sub.price}.` : "Your membership is active.";
+    } else if (!proLive()) {
+      pill.textContent = "Free";
+      text.textContent = "Free accounts get every deal and email alerts. Pro adds the extras below. It's coming soon.";
+      wait.hidden = false;
+      wait.disabled = !!me.pro_waitlist;
+      wait.textContent = me.pro_waitlist ? "You're on the list ✓" : "Notify me when Pro launches";
     } else {
       pill.textContent = "Free";
       text.textContent = trialDays()
@@ -969,6 +1048,7 @@
       subscribe.textContent = ctaLabel();
     }
     pill.dataset.kind = me.role === "admin" ? "admin" : me.entitled ? "member" : "free";
+    $("#nav-admin").hidden = !isAdmin();
     $("#mem-perks").hidden = me.entitled && me.role !== "admin" ? false : false;
 
     // profile
@@ -1013,6 +1093,7 @@
 
   function wireAccountPage() {
     $("#mem-subscribe").addEventListener("click", (e) => startCheckout(e.currentTarget, $("#mem-subscribe").closest("section")));
+    $("#mem-waitlist").addEventListener("click", (e) => joinWaitlist(e.currentTarget, e.currentTarget.closest("section")));
     $("#mem-manage").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
       const msg = $("#mem-msg");
@@ -1079,10 +1160,15 @@
 
   // ---------------- alerts page ----------------
   async function renderAlerts() {
-    const locked = !isMember();
-    $("#alerts-locked").hidden = !locked;
-    $("#alerts-form").hidden = locked;
-    if (locked) return fillLock($("#alerts-locked"), "Deal alerts");
+    // Alerts are free for anyone signed in; the place and nonstop filters are Pro.
+    const signedIn = !!state.me.signed_in;
+    $("#alerts-locked").hidden = signedIn;
+    $("#alerts-form").hidden = !signedIn;
+    if (!signedIn) return fillAlertsSignup($("#alerts-locked"));
+    const pro = isMember();
+    $$("#alerts-form .pro-tag").forEach((t) => { t.hidden = pro; });
+    $$("#alerts-scope button").forEach((b) => { b.disabled = !pro; });
+    $("#alerts-form").elements.nonstop.disabled = !pro;
     let acct;
     try { acct = (await api("/api/account")).account; } catch { return; }
     const f = $("#alerts-form");
@@ -1125,6 +1211,20 @@
     f.onchange = (e) => { if (e.target.name === "on") setSwitch(e.target.checked); };
   }
 
+  function fillAlertsSignup(node) {
+    node.replaceChildren(el("h3", "", "Deal alerts are free"),
+      el("p", "", "Create a free account and we'll email you when a fare out of Seattle or Portland is worth it. No digests, no newsletters."));
+    const actions = el("div", "t-actions");
+    const a = el("button", "btn primary", "Create a free account");
+    a.type = "button";
+    a.addEventListener("click", () => openAuth("signup"));
+    const s2 = el("button", "btn glass-btn", "Sign in");
+    s2.type = "button";
+    s2.addEventListener("click", () => openAuth("signin"));
+    actions.append(a, s2);
+    node.append(actions);
+  }
+
   function setScope(some) {
     $$("#alerts-scope button").forEach((b) => b.setAttribute("aria-checked", String((b.dataset.value === "some") === some)));
     $("#alerts-dests").hidden = !some;
@@ -1146,12 +1246,73 @@
       e.preventDefault();
       const msg = $(".t-msg", e.target);
       try {
+        const pro = isMember();
         await api("/api/account/alerts", "PUT", { on: e.target.elements.on.checked,
           origins: $$("#alerts-home button[aria-pressed=true]").map((b) => b.dataset.value),
-          destinations: $("#alerts-dests").hidden ? "everywhere" : $$("#alerts-dests input:checked").map((x) => x.value),
-          nonstop_only: e.target.elements.nonstop.checked });
+          destinations: !pro || $("#alerts-dests").hidden ? "everywhere" : $$("#alerts-dests input:checked").map((x) => x.value),
+          nonstop_only: pro && e.target.elements.nonstop.checked });
         flash(msg, e.target.elements.on.checked ? "Saved. Alerts are on." : "Saved. Alerts are off.", "ok");
         renderAlerts();
+      } catch (err) { flash(msg, err.message, "err"); }
+    });
+  }
+
+  // ---------------- admin panel (owners only) ----------------
+  const roleName = (r) => ({ admin: "Admin", tester: "Beta tester", member: "Member" }[r] || r);
+
+  function adminRow(u, onChange) {
+    const li = el("li", "admin-user");
+    const who = el("div", "admin-who");
+    who.append(el("b", "", u.email), el("span", "fine",
+      `${roleName(u.role)}${u.name ? ` · ${u.name}` : ""} · joined ${ago(u.created_at)}${u.email_verified ? "" : " · email not confirmed"}`
+      + `${u.subscription_status ? ` · Stripe: ${u.subscription_status}` : ""}${u.pro_waitlist ? " · on Pro list" : ""}`));
+    li.append(who);
+    if (u.role !== "admin") {
+      const tester = u.role === "tester";
+      const b = el("button", tester ? "btn glass-btn small" : "btn primary small", tester ? "Remove tester access" : "Give full access (tester)");
+      b.type = "button";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const out = await api("/api/admin/users/role", "PUT", { id: u.id, role: tester ? "member" : "tester" });
+          onChange(out.user);
+        } catch (e) { b.disabled = false; b.textContent = e.message; }
+      });
+      li.append(b);
+    }
+    return li;
+  }
+
+  async function renderAdmin() {
+    if (!isAdmin()) { location.hash = "#browse"; return; }
+    try {
+      const out = await api("/api/admin/testers");
+      const c = out.counts;
+      $("#admin-counts").textContent = `${c.users} account${c.users === 1 ? "" : "s"} · ${c.testers} beta tester${c.testers === 1 ? "" : "s"}`
+        + ` · ${c.waitlist} on the Pro launch list${c.paying ? ` · ${c.paying} paying` : ""}`;
+      const list = $("#admin-testers");
+      list.replaceChildren(...(out.testers.length ? out.testers.map((u) => adminRow(u, () => renderAdmin()))
+        : [el("li", "fine", "No beta testers yet. Find an account above to add one.")]));
+    } catch (e) { $("#admin-counts").textContent = e.message; }
+  }
+
+  function wireAdmin() {
+    $("#admin-find").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $(".t-msg", e.target);
+      const box = $("#admin-result");
+      box.hidden = true;
+      try {
+        const out = await api(`/api/admin/users?email=${encodeURIComponent(e.target.elements.email.value.trim())}`);
+        if (!out.user) { flash(msg, "No account with that email.", "err"); return; }
+        flash(msg, "");
+        const show = (u) => {
+          const ul = el("ul", "admin-list");
+          ul.append(adminRow(u, (nu) => { show(nu); renderAdmin(); }));
+          box.replaceChildren(ul);
+          box.hidden = false;
+        };
+        show(out.user);
       } catch (err) { flash(msg, err.message, "err"); }
     });
   }
@@ -1423,9 +1584,12 @@
   wireBooking();
   wireContact();
   wireDealCard();
+  wireAdmin();
   $("#plan-cta").addEventListener("click", (e) => {
     if (!state.me.signed_in) openAuth("signup");
-    else if (!isMember()) startCheckout(e.currentTarget, e.currentTarget.closest(".plan"));
+    else if (isMember()) return;
+    else if (!proLive()) joinWaitlist(e.currentTarget, e.currentTarget.closest(".plan"));
+    else startCheckout(e.currentTarget, e.currentTarget.closest(".plan"));
   });
   Promise.all([loadMeta(), loadMe()]).then(() => { route(); loadDeals(); });
 })();

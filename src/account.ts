@@ -13,7 +13,11 @@
  *   GET  /api/auth/oauth/:provider/start        Google / Apple
  *   GET|POST /api/auth/oauth/:provider/callback
  *   GET|PUT /api/account                        {name}
- *   PUT  /api/account/alerts  {on, origins}     subscribers
+ *   PUT  /api/account/alerts  {on, origins, destinations?, nonstop_only?}   anyone; the filters are Pro
+ *   PUT  /api/account/pro-waitlist {on}        hear when Pro launches
+ *   GET  /api/admin/users?email=               admins: find an account (exact email)
+ *   GET  /api/admin/testers                    admins: beta testers and counts
+ *   PUT  /api/admin/users/role {id, role}      admins: make someone a tester or a member
  *   GET|PUT|DELETE /api/account/rules           subscribers: personal logic
  *   GET  /api/account/export
  *   POST /api/account/signout-all
@@ -122,6 +126,7 @@ async function meView(cfg: Config, users: UserStore, u: User) {
     has_password: u.hasPassword,
     sign_in_methods: [...(u.hasPassword ? ["password"] : []), ...(await users.identities(u.id))],
     entitled: entitled(u),
+    pro_waitlist: u.proWaitlist,
     subscription: subscriptionView(u),
     ...(u.role === "admin" && u.contact && !u.mustChangePassword ? { contact: u.contact, booking: await ownerBooking(cfg) } : {}),
   };
@@ -139,7 +144,7 @@ export const MUST_CHANGE_ALLOWED = new Set(["/api/me", "/api/meta", "/api/auth/p
 export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<Response | null> {
   const { cfg } = deps;
   const p = url.pathname;
-  if (!p.startsWith("/api/auth/") && !p.startsWith("/api/account") && p !== "/api/me") return null;
+  if (!p.startsWith("/api/auth/") && !p.startsWith("/api/account") && !p.startsWith("/api/admin/") && p !== "/api/me") return null;
   if (typeof cfg.env.LINK_SECRET !== "string" || cfg.env.LINK_SECRET.length < 16) {
     return json({ ok: false, error: "Accounts aren't set up on this site yet." }, 503);
   }
@@ -322,21 +327,33 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
     }
 
     if (p === "/api/account/alerts" && m === "PUT") {
-      if (!entitled(u)) return paywall();
+      // Basic alerts are free. Destination and nonstop filters are Pro.
+      const pro = entitled(u);
       const b = await body(req);
       const origins = Array.isArray(b?.origins)
         ? [...new Set((b!.origins as unknown[]).map((o) => String(o).toUpperCase()))].filter((o) => cfg.origins.includes(o)) : [];
       if (!origins.length) return json({ ok: false, error: "Pick at least one home airport." }, 400);
       // Destinations: "everywhere" (or missing) means all; otherwise a list of airports we cover.
       let destinations: string[] | null = null;
-      if (Array.isArray(b?.destinations)) {
+      if (pro && Array.isArray(b?.destinations)) {
         const known = new Set([...cfg.domestic, ...cfg.international]);
         destinations = [...new Set((b!.destinations as unknown[]).map((d) => String(d).toUpperCase()))].filter((d) => known.has(d));
         if (!destinations.length) return json({ ok: false, error: "Pick at least one place, or choose Everywhere.", field: "destinations" }, 400);
       }
       await users.setAlerts(u.id, b?.on !== false, origins);
-      await users.setAlertPrefs(u.id, destinations, b?.nonstop_only === true);
+      await users.setAlertPrefs(u.id, destinations, pro && b?.nonstop_only === true);
       return json({ ok: true, account: await accountView(cfg, users, (await users.byId(u.id))!) });
+    }
+
+    if (p === "/api/account/pro-waitlist" && m === "PUT") {
+      const b = await body(req);
+      await users.setWaitlist(u.id, b?.on !== false);
+      return json({ ok: true, pro_waitlist: b?.on !== false });
+    }
+
+    if (p.startsWith("/api/admin/")) {
+      if (u.role !== "admin" || u.mustChangePassword) return json({ ok: false, error: "Admins only." }, 403);
+      return adminRoute(req, p, m, users);
     }
 
     if (p === "/api/account/rules") {
@@ -455,4 +472,37 @@ async function promoteIfOwner(cfg: Config, users: UserStore, id: number) {
   if (!u || !u.emailVerified) return;
   const owner = cfg.contacts.find((c) => c.email && normalizeEmail(c.email) === u.email);
   if (owner && (u.role !== "admin" || u.contact !== owner.name)) await users.setRole(u.id, "admin", owner.name);
+}
+
+/** What the admin panel may see about an account: no hashes, no billing ids. */
+function adminView(u: User) {
+  return { id: u.id, email: u.email, name: u.name, role: u.role, email_verified: u.emailVerified,
+    created_at: u.createdAt, last_login_at: u.lastLoginAt, subscription_status: u.subscriptionStatus,
+    pro_waitlist: u.proWaitlist };
+}
+
+async function adminRoute(req: Request, p: string, m: string, users: UserStore): Promise<Response> {
+  const url = new URL(req.url);
+  if (p === "/api/admin/users" && m === "GET") {
+    // Emails are stored encrypted, so lookups are by exact address (via the blind index).
+    const email = (url.searchParams.get("email") ?? "").trim();
+    if (!EMAIL_RE.test(email)) return json({ ok: false, error: "Enter the full email address." }, 400);
+    const found = await users.byEmail(email);
+    return json({ ok: true, user: found ? adminView(found) : null });
+  }
+  if (p === "/api/admin/testers" && m === "GET") {
+    return json({ ok: true, testers: (await users.testers()).map(adminView), counts: await users.counts() });
+  }
+  if (p === "/api/admin/users/role" && m === "PUT") {
+    const b = await body(req);
+    const id = Number(b?.id);
+    const role = b?.role;
+    if (!Number.isInteger(id) || (role !== "tester" && role !== "member")) return json({ ok: false, error: "Bad request." }, 400);
+    const target = await users.byId(id);
+    if (!target) return json({ ok: false, error: "No such account." }, 404);
+    if (target.role === "admin") return json({ ok: false, error: "Admin accounts can't be changed here." }, 400);
+    await users.setRole(id, role, null);
+    return json({ ok: true, user: adminView((await users.byId(id))!) });
+  }
+  return json({ ok: false, error: "Not found." }, 404);
 }

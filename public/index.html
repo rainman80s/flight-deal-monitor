@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Fare Radar</title>
-  <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock. Browse deals free; members get alerts by their own rules.">
+  <meta name="description" content="Cheap round-trip flights out of Seattle and Portland, found around the clock. Browse deals and get email alerts free.">
   <meta name="theme-color" content="#0e1d22">
   <link rel="canonical" href="{{BASE}}/">
   <link rel="manifest" href="/manifest.webmanifest">
@@ -34,6 +34,7 @@
         <a href="#browse" data-tab="browse">Deals</a>
         <a href="#logic" data-tab="logic">Logic</a>
         <a href="#signup" data-tab="signup">Alerts</a>
+        <a href="#admin" data-tab="admin" id="nav-admin" hidden>Admin</a>
       </nav>
       <button type="button" class="btn glass-btn small" id="account-btn">Sign in</button>
     </div>
@@ -244,7 +245,7 @@
       </ol>
       <p class="stats" id="stats" hidden></p>
 
-      <h2 class="section-title" id="plans-title">Free or member</h2>
+      <h2 class="section-title" id="plans-title"><span data-pro-only>Free or member</span><span data-pro-soon>Free now, Pro soon</span></h2>
       <div class="plans">
         <div class="plan">
           <h3>Free</h3>
@@ -253,15 +254,17 @@
             <li>Every deal we find, updated hourly</li>
             <li>Full details for each deal</li>
             <li>Links to book with the airline</li>
+            <li data-pro-soon>Email alerts when a fare is worth it</li>
           </ul>
           <button type="button" class="btn glass-btn" data-auth="signup">Create a free account</button>
         </div>
         <div class="plan plan-member">
-          <h3>Member</h3>
-          <p class="plan-price">$8<span>/month</span></p>
+          <h3><span data-pro-only>Member</span><span data-pro-soon>Pro</span></h3>
+          <p class="plan-price" data-pro-only>$8<span>/month</span></p>
+          <p class="plan-price" data-pro-soon>Coming soon</p>
           <ul>
             <li>Everything in Free</li>
-            <li>Email alerts the moment a fare fits your rules</li>
+            <li data-pro-only>Email alerts the moment a fare fits your rules</li>
             <li>Your own logic: how far out, how long, how cheap</li>
             <li>"Well below usual" alerts for each city</li>
             <li>Pick the places you care about, nonstop only if you like</li>
@@ -269,7 +272,8 @@
           </ul>
           <button type="button" class="btn primary" id="plan-cta">Start 7-day free trial</button>
           <p class="t-msg" role="status" aria-live="polite"></p>
-          <p class="fine">Cancel any time. We email you before the trial ends.</p>
+          <p class="fine" data-pro-only>Cancel any time. We email you before the trial ends.</p>
+          <p class="fine" data-pro-soon>Join the list and we'll email you once when Pro opens.</p>
         </div>
       </div>
     </section>
@@ -317,7 +321,7 @@
             <div class="seg wide" id="alerts-home" role="group"></div>
           </fieldset>
           <fieldset class="field-set">
-            <legend class="field-label">Alert me about</legend>
+            <legend class="field-label">Alert me about <span class="pro-tag" hidden>Pro</span></legend>
             <div class="seg wide" id="alerts-scope" role="radiogroup" aria-label="Which destinations">
               <button type="button" role="radio" data-value="all" aria-checked="true">Everywhere</button>
               <button type="button" role="radio" data-value="some" aria-checked="false">Only places I pick</button>
@@ -325,7 +329,7 @@
             <div class="dest-pick" id="alerts-dests" hidden></div>
           </fieldset>
           <label class="switch nonstop"><input type="checkbox" name="nonstop" role="switch"><span aria-hidden="true"></span>
-            <b>Nonstop flights only</b></label>
+            <b>Nonstop flights only</b> <span class="pro-tag" hidden>Pro</span></label>
           <p class="muted-p rules-line" id="alerts-rules"></p>
           <p class="fine" id="alerts-status"></p>
           <div class="t-actions"><button class="btn primary" type="submit">Save alerts</button>
@@ -395,8 +399,10 @@
       <h1 id="account-title">Account</h1>
 
       <div id="acct-signed-out" hidden>
-        <p class="lead-p">Create a free account, then become a member ($8/month) for deal alerts, your own rules and
+        <p class="lead-p" data-pro-only>Create a free account, then become a member ($8/month) for deal alerts, your own rules and
           route search.</p>
+        <p class="lead-p" data-pro-soon>Create a free account to get deal alerts by email. Pro (your own rules, alert
+          filters and route search) is coming soon.</p>
         <div class="t-actions">
           <button type="button" class="btn primary" data-auth="signup">Create an account</button>
           <button type="button" class="btn glass-btn" data-auth="signin">Sign in</button>
@@ -410,16 +416,18 @@
           <div class="card-head"><h2 id="mem-title">Membership</h2><span class="pill" id="mem-pill"></span></div>
           <p class="muted-p" id="mem-text"></p>
           <ul class="perks" id="mem-perks">
-            <li>Deal alerts by email, judged by your own rules</li>
+            <li data-pro-only>Deal alerts by email, judged by your own rules</li>
+            <li data-pro-soon>Deal alerts filtered to the places you pick, nonstop only if you like</li>
             <li>Your own logic: timing, trip length, price limits, "below usual" alerts</li>
             <li>Check any route across a whole month of dates</li>
           </ul>
           <div class="t-actions">
             <button type="button" class="btn primary" id="mem-subscribe" hidden>Become a member · $8/month</button>
+            <button type="button" class="btn primary" id="mem-waitlist" hidden>Notify me when Pro launches</button>
             <button type="button" class="btn glass-btn" id="mem-manage" hidden>Manage billing</button>
             <span class="t-msg" id="mem-msg" role="status" aria-live="polite"></span>
           </div>
-          <p class="fine" id="mem-fine">Payments are handled by Stripe. Card details never touch this site. Cancel any time.</p>
+          <p class="fine" id="mem-fine" data-pro-only>Payments are handled by Stripe. Card details never touch this site. Cancel any time.</p>
         </section>
 
         <form class="acct-card" id="acct-profile" novalidate>
@@ -475,6 +483,28 @@
   </section>
 
   <!-- ===================== About & FAQ ===================== -->
+  <!-- ===================== Admin (owners) ===================== -->
+  <section id="view-admin" class="view page" aria-labelledby="admin-title" hidden>
+    <div class="account">
+      <h1 id="admin-title">Admin</h1>
+      <p class="lead-p" id="admin-counts"></p>
+      <form class="acct-card" id="admin-find" novalidate>
+        <div class="card-head"><h2>Find an account</h2></div>
+        <p class="muted-p">Emails are stored encrypted, so type the person's full email address.</p>
+        <label class="f"><span class="field-label">Email</span>
+          <input type="email" name="email" autocomplete="off" required placeholder="name@example.com"></label>
+        <div class="t-actions"><button class="btn primary" type="submit">Find</button>
+          <span class="t-msg" role="status" aria-live="polite"></span></div>
+        <div class="admin-result" id="admin-result" hidden></div>
+      </form>
+      <section class="acct-card" aria-labelledby="testers-title">
+        <div class="card-head"><h2 id="testers-title">Beta testers</h2></div>
+        <p class="muted-p">Testers get every Pro feature free. They can't change the site's defaults or see this page.</p>
+        <ul class="admin-list" id="admin-testers"></ul>
+      </section>
+    </div>
+  </section>
+
   <section id="view-about" class="view page" aria-labelledby="about-title" hidden>
     <article class="prose">
       <h1 id="about-title">About Fare Radar</h1>
@@ -497,12 +527,16 @@
       <details><summary>Can I book on this site?</summary>
         <p>You book with the airline or through Google Flights: open any deal and use the buttons there. (Booking
           right here is limited to the site's owners for now.)</p></details>
-      <details><summary>What do members get?</summary>
+      <details data-pro-soon><summary>What's free, and what's Pro?</summary>
+        <p>Free accounts get every deal and email alerts judged by the site's rules. Pro, coming soon, adds your own
+          logic (how far out, how long, how cheap), alerts for just the places you pick or nonstop only, and route
+          search across a whole month of dates. Join the list on your Account page and we'll email you when it opens.</p></details>
+      <details data-pro-only><summary>What do members get?</summary>
         <p>For $8 a month: deal alerts by email, judged by your own rules; your own logic (how far out, how long, how
           cheap, and "well below the usual price" alerts), which changes only your view; and route search across a
           whole month of dates. Your first 7 days are free, and we remind you before the trial ends. Anyone can browse
           the deals for free.</p></details>
-      <details><summary>How do I cancel?</summary>
+      <details data-pro-only><summary>How do I cancel?</summary>
         <p>On your Account page, choose Manage billing, then cancel. You keep your membership until the end of the
           month you've paid for. You can also delete your account, which cancels right away.</p></details>
       <details><summary>How do I sign in?</summary>
@@ -554,7 +588,7 @@
         <li><b>Your settings.</b> Your home airports, whether alerts are on, the places you want alerts for, nonstop-only, your own deal
           rules, and which deals we've
           emailed you about, so we never send the same one twice.</li>
-        <li><b>Membership.</b> Your Stripe customer number and your membership status and renewal date. Stripe holds
+        <li data-pro-only><b>Membership.</b> Your Stripe customer number and your membership status and renewal date. Stripe holds
           the payment details.</li>
         <li><b>Contact form.</b> Your name if you give it, your email and your message. It's delivered to us by email
           and isn't stored on the site.</li>
@@ -652,6 +686,13 @@
       <p>Keep your password to yourself and use one you don't use elsewhere. You're responsible for what happens under
         your account. Tell us right away if you think someone else got in. One account per person.</p>
 
+      <div data-pro-soon>
+      <h2>Free accounts and Pro</h2>
+      <p>Fare Radar is free to use right now: browsing deals and email alerts cost nothing. Paid Pro features are not
+        on sale yet. Before we charge for anything, we'll publish the price and billing terms here, and nobody is ever
+        charged without signing up for it and entering a card themselves.</p>
+      </div>
+      <div data-pro-only>
       <h2>Membership and billing</h2>
       <p>Browsing the deals is free. Deal alerts, your own logic and route search are part of a membership, which
         costs $8 per month (plus any sales tax) and renews automatically each month until you cancel. Stripe processes
@@ -663,6 +704,7 @@
         you've paid for and doesn't renew. Payments aren't refunded for partial months, except where the law requires
         it. If a renewal payment fails, we keep your access for a short grace period while Stripe retries. If we change
         the price, we'll email members at least 30 days before it applies, and you can cancel before then.</p>
+      </div>
       <p>Alerts are best effort. We may miss a deal, send one late, or change or stop the service. If we stop it, we'll
         refund any unused part of your current month.</p>
 

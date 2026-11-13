@@ -296,10 +296,13 @@ describe("site-wide protections", () => {
     }
   });
 
-  it("paid features answer 402 for free accounts and 401 for visitors", async () => {
+  it("Pro features answer 402 for free accounts and 401 for visitors; basic alerts are free", async () => {
     const s = site();
     const { cookie } = await sessionFor(s.cfg);
-    expect((await s.call("PUT", "/api/account/alerts", { on: true, origins: ["SEA"] }, { Cookie: cookie })).status).toBe(402);
+    const free = await s.call("PUT", "/api/account/alerts", { on: true, origins: ["SEA"], destinations: ["LAX"], nonstop_only: true }, { Cookie: cookie });
+    expect(free.status).toBe(200);
+    // The Pro-only filters are ignored for free accounts.
+    expect((free.body.account as { alerts: unknown }).alerts).toMatchObject({ on: true, destinations: null, nonstop_only: false });
     expect((await s.call("GET", "/api/account/rules", undefined, { Cookie: cookie })).status).toBe(402);
     expect((await s.call("GET", "/api/account/rules")).status).toBe(401);
     expect(entitled((await sessionFor(s.cfg, { entitled: true })).user)).toBe(true);
@@ -407,7 +410,7 @@ async function stripeSig(payload: string, secret: string, t = Math.floor(Date.no
 }
 
 describe("Stripe billing", () => {
-  const env = { STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test", STRIPE_PRICE_ID: "price_8" };
+  const env = { STRIPE_SECRET_KEY: "sk_test_x", STRIPE_WEBHOOK_SECRET: "whsec_test", STRIPE_PRICE_ID: "price_8", PRO_LAUNCHED: "true" };
 
   it("checks webhook signatures, including their age", async () => {
     const body = '{"id":"evt_1"}';

@@ -68,7 +68,7 @@ describe("email alerts", () => {
     expect(h.notifier.sent.filter((s) => s.kind === "email")).toHaveLength(0);
   });
 
-  it("only members with a live membership, a confirmed email and alerts on get alerts", async () => {
+  it("anyone with a confirmed email and alerts on gets alerts", async () => {
     const h = harness({ dryRun: false });
     const paid = await sessionFor(h.cfg, { entitled: true, email: "paid@example.com" });
     await sessionFor(h.cfg, { email: "free@example.com" });
@@ -79,15 +79,15 @@ describe("email alerts", () => {
     await UserStore.for(h.cfg).setAlerts(pdxOnly.user.id, true, ["PDX"]);
     await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, NOON, true);
     const emails = h.notifier.sent.filter((s) => s.kind === "email");
-    expect(emails.map((e) => e.to)).toEqual(["paid@example.com"]);
-    const m = emails[0].email!;
+    expect(emails.map((e) => e.to).sort()).toEqual(["free@example.com", "paid@example.com"]);
+    const m = emails.find((e) => e.to === "paid@example.com")!.email!;
     expect(m.html).not.toContain(">Buy</a>"); // members book on the airline / Google Flights
     expect(m.headers!["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
     expect(m.html).toContain(`/u/unsubscribe?u=${paid.user.id}&amp;t=`);
 
     // The same trip isn't sent again on the next run.
     await runCycle(h.cfg, h.store, { name: "f", search: async () => [fare()] }, h.notifier, new Date(NOON.getTime() + 25 * 3600e3), true);
-    expect(h.notifier.sent.filter((s) => s.kind === "email")).toHaveLength(1);
+    expect(h.notifier.sent.filter((s) => s.kind === "email")).toHaveLength(2);
   });
 
   it("each member is judged by their own rules", async () => {

@@ -16,7 +16,7 @@ import { safeEqual } from "./crypto";
 import { shortDate } from "./dates";
 import { BRAND, button, escHtml, fine, frameFor, layout, p, priceLine, textFooter, unsubscribeHeaders } from "./email";
 import { actionUrl } from "./links";
-import { buyMeaning, city, dealEmail, destCity, stops, tripDays } from "./messages";
+import { bookingSite, buyMeaning, city, dealEmail, dealGoogleUrl, destCity, isGoogleFlights, stops, tripDays } from "./messages";
 import type { Deal } from "./models";
 import type { Notifier } from "./notify";
 import { rejectionReason } from "./rules";
@@ -46,7 +46,9 @@ export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why
     : `${stops(d.outbound_stops)} out, ${stops(d.return_stops)} back`;
   const text = `${d.origin} → ${d.destination} (${destCity(d)}), $${d.price.toFixed(0)} round trip (${kind})\n`
     + `Why: ${why}\n${shortDate(d.depart_date)} → ${shortDate(d.return_date)} (${tripDays(d)} days) · ${legs}`
-    + `${airlines ? ` · ${airlines}` : ""}\n\nBook: ${d.booking_url ?? ""}\n\nPrices move fast; check the fare before you pay.\n`
+    + `${airlines ? ` · ${airlines}` : ""}\n\n`
+    + (d.booking_url && !isGoogleFlights(d.booking_url) ? `Book on ${bookingSite(d.booking_url)}: ${d.booking_url}\n` : "")
+    + `See it on Google Flights: ${dealGoogleUrl(d)}\n\nPrices move fast; check the fare before you pay.\n`
     + textFooter(f, reason, unsub);
   const html = layout(f, {
     preheader: `${why}. ${shortDate(d.depart_date)} to ${shortDate(d.return_date)}.`,
@@ -60,7 +62,8 @@ export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why
       + (d.typical_median && d.price < d.typical_median
         ? p(`Usually about <b style="color:#14262c">$${Math.round(d.typical_median)}</b> on this route, so you save about `
           + `<b style="color:#14262c">$${Math.round(d.typical_median - d.price)}</b>.`) : "")
-      + `<div style="margin:22px 0 4px">${d.booking_url ? button(d.booking_url, "See it and book") : ""}`
+      + `<div style="margin:22px 0 4px">${d.booking_url && !isGoogleFlights(d.booking_url) ? button(d.booking_url, `Book on ${bookingSite(d.booking_url)}`) : ""}`
+      + `${button(dealGoogleUrl(d), "See it on Google Flights", d.booking_url && !isGoogleFlights(d.booking_url) ? "secondary" : undefined)}`
       + `${button(`${frameFor(cfg).base}/#deal=${encodeURIComponent(d.code)}`, "Details", "secondary")}</div>`
       + fine("How to book: open the fare, and if the price moved try a day either side. Book with the airline when you can. "
         + "Cheap fares are often basic economy, so check bag fees. In the US you can usually cancel within 24 hours for a full refund.")
@@ -98,18 +101,20 @@ export async function notifyMembers(cfg: Config, notifier: Notifier, deals: Deal
   let sent = 0;
 
   for (const u of await users.withAlertsOn()) {
-    if (!entitled(u) || !u.emailVerified || u.mustChangePassword) continue;
-    const cats = personalCategories(cfg, u.rules);
+    if (!u.emailVerified || u.mustChangePassword) continue;
+    // Everyone gets alerts on the site's rules; personal logic and filters are Pro.
+    const pro = entitled(u);
+    const cats = pro ? personalCategories(cfg, u.rules) : cfg.cats;
     const view = { ...cfg, cats } as Config;
     let mine = 0;
     let todayCount = await users.alertsSince(u.id, dayAgo);
     for (const d of fresh) {
       if (mine >= PER_RUN || todayCount >= PER_DAY) break;
       if (!u.origins.includes(d.origin)) continue;
-      if (u.destinations && !u.destinations.includes(d.destination)) continue;
+      if (pro && u.destinations && !u.destinations.includes(d.destination)) continue;
       // Nonstop only: skip anything with stops, and estimates whose stops we don't know yet.
       const estimate = d.provider === "ignav-calendar" || d.provider === "google-explore";
-      if (u.nonstopOnly && (estimate || d.outbound_stops > 0 || d.return_stops > 0)) continue;
+      if (pro && u.nonstopOnly && (estimate || d.outbound_stops > 0 || d.return_stops > 0)) continue;
       const kind = d.kind === "domestic" || d.kind === "international" ? d.kind : (cfg.domestic.includes(d.destination) ? "domestic" : "international");
       const fare = { provider: d.provider, origin: d.origin, destination: d.destination, departDate: d.depart_date,
         returnDate: d.return_date, price: d.price, currency: d.currency, airlines: [], outboundStops: 0, returnStops: 0,

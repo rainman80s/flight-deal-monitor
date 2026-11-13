@@ -7,7 +7,8 @@
 import { type Config } from "./config";
 import { normalizeEmail, randomToken, sha256, Vault } from "./crypto";
 
-export type Role = "member" | "admin";
+/** admin: owners. tester: beta testers with every Pro feature but no site controls. */
+export type Role = "member" | "tester" | "admin";
 
 interface Row {
   id: number; email_index: string; email_enc: string; name_enc: string | null; password_hash: string | null;
@@ -16,6 +17,7 @@ interface Row {
   password_changed_at: string | null; stripe_customer_id: string | null; subscription_id: string | null;
   subscription_status: string | null; current_period_end: number | null; cancel_at_period_end: number;
   alerts_on: number; origins: string; rules: string | null; destinations: string | null; nonstop_only: number;
+  pro_waitlist: number;
 }
 
 export interface User {
@@ -43,6 +45,8 @@ export interface User {
   /** Airport codes to get alerts for; null means everywhere. */
   destinations: string[] | null;
   nonstopOnly: boolean;
+  /** Asked to hear when Pro launches. */
+  proWaitlist: boolean;
 }
 
 export const SESSION_DAYS = 30;
@@ -52,10 +56,10 @@ const nowIso = () => new Date().toISOString().slice(0, 19) + "Z";
 
 export const vaultFor = (cfg: Config) => new Vault(String(cfg.env.LINK_SECRET ?? ""));
 
-/** Paid features: admins always; members with a live subscription. */
+/** Pro features: admins and beta testers always; members with a live subscription. */
 export function entitled(u: User | null | undefined, now = nowSec()): boolean {
   if (!u) return false;
-  if (u.role === "admin") return true;
+  if (u.role === "admin" || u.role === "tester") return true;
   const s = u.subscriptionStatus;
   if (s === "active" || s === "trialing") return true;
   // Stripe retries failed renewals for a while; keep access until the paid period runs out.
@@ -74,7 +78,7 @@ export class UserStore {
       id: r.id,
       email: await this.vault.open("email", r.email_enc),
       name: r.name_enc ? await this.vault.open("name", r.name_enc) : null,
-      role: r.role === "admin" ? "admin" : "member",
+      role: r.role === "admin" || r.role === "tester" ? r.role : "member",
       contact: r.contact,
       emailVerified: !!r.email_verified,
       mustChangePassword: !!r.must_change_password,
@@ -94,6 +98,7 @@ export class UserStore {
       rules: r.rules ? safeJson(r.rules, null) : null,
       destinations: r.destinations ? safeJson(r.destinations, null) as string[] | null : null,
       nonstopOnly: !!r.nonstop_only,
+      proWaitlist: !!r.pro_waitlist,
     };
   }
 
@@ -173,6 +178,22 @@ export class UserStore {
   async setAlertPrefs(id: number, destinations: string[] | null, nonstopOnly: boolean) {
     await this.db.prepare("UPDATE users SET destinations=?, nonstop_only=? WHERE id=?")
       .bind(destinations ? JSON.stringify(destinations) : null, nonstopOnly ? 1 : 0, id).run();
+  }
+
+  async setWaitlist(id: number, on: boolean) {
+    await this.db.prepare("UPDATE users SET pro_waitlist=? WHERE id=?").bind(on ? 1 : 0, id).run();
+  }
+
+  /** Beta testers, newest first (for the admin panel). */
+  async testers(): Promise<User[]> {
+    const r = await this.db.prepare("SELECT * FROM users WHERE role='tester' ORDER BY id DESC LIMIT 200").all<Row>();
+    return (await Promise.all(r.results.map((x) => this.view(x)))).filter((u): u is User => !!u);
+  }
+
+  async counts() {
+    const r = await this.db.prepare(`SELECT COUNT(*) AS users, SUM(pro_waitlist) AS waitlist,
+      SUM(role='tester') AS testers, SUM(subscription_status IN ('active','trialing')) AS paying FROM users`).first<Record<string, number | null>>();
+    return { users: r?.users ?? 0, waitlist: r?.waitlist ?? 0, testers: r?.testers ?? 0, paying: r?.paying ?? 0 };
   }
 
   async setRules(id: number, rules: unknown | null) {
