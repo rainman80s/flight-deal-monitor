@@ -78,7 +78,8 @@ if (all.length < 4) throw new Error(`only ${all.length} live deals; not enough f
 const below = (d) => (d.typical?.median && d.price < d.typical.median ? 1 - d.price / d.typical.median : 0);
 const toDeal = (d) => ({
   from: d.origin_city, origin: d.origin, to: shortCity(d.destination_city), price: Math.round(d.price),
-  usual: d.typical?.median && d.typical.median > d.price ? Math.round(d.typical.median) : null,
+  // Only claim a saving when it's real: at least 10% under the route's usual price.
+  usual: d.typical?.median && d.price <= d.typical.median * 0.9 ? Math.round(d.typical.median) : null,
   dates: `${fmt(d.depart_date)} → ${fmt(d.return_date)}`,
   airline: [...new Set(d.airlines)].length === 1 ? AIR[d.airlines[0]] || d.airlines[0] : "",
 });
@@ -162,6 +163,17 @@ posts.push({ slug: heroSlug, files: [render("DealDropVertical", adProps, `[REEL]
     + `More this week:\n${listDeals.slice(0, 4).map((d) => `• ${d.origin} → ${shortCity(d.destination_city)} $${Math.round(d.price)}`).join("\n")}\n\n`
     + `Free deal alerts: ${link}\n(link in bio)\n\nPrices change fast, so book soon if you want it.\n\n${tags}\n${credit}` });
 
+// Always made, media or not: the week's five cheapest places, one per beat phrase.
+const five = listDeals.slice(0, 5).map(toDeal);
+if (five.length >= 3) {
+  const fiveProps = { beats: grid.beats, audio: "cut.mp3", deals: five, photo: photos[1] || photos[0] || null };
+  posts.push({ slug: "topfivedeals", files: [render("TopFiveVertical", fiveProps, "[REEL] topfivedeals9x16.mp4"),
+    render("TopFiveSquare", fiveProps, "[POST] topfivedeals4x4.mp4")],
+    caption: `${five.length} cheap flights out of Seattle and Portland this week ✈️\n\n`
+      + `${five.map((d) => `• ${d.origin} → ${d.to}: $${d.price} round trip (${d.dates})`).join("\n")}\n\n`
+      + `Which one are you booking? Free deal alerts: ${link}\n(link in bio)\n\nPrices change fast.\n\n${tags}\n${credit}` });
+}
+
 if (clips.length || photos.length > 1) {
   const T = toDeal(tripDeal);
   posts.push({ files: [render("TripEdit", { beats: grid.beats, audio: "cut.mp3", clips, photos: photos.slice(1).length ? photos.slice(1) : photos,
@@ -181,9 +193,10 @@ if (head) {
     const by = obj?.result?.custom_metadata?.by || null;
     const name = by ? by.charAt(0) + by.slice(1).toLowerCase() : null;
     const who = (name || "founder").toLowerCase().replace(/[^a-z]/g, "");
-    posts.push({ slug: `talkinghead${who}`, files: [render("Founder", { video: "talk.mp4", seconds: secs, name }, `[REEL] talkinghead${who}9x16.mp4`)],
+    // The week's headline deal pops up over the talking head, so every founder clip sells something real.
+    posts.push({ slug: `talkinghead${who}`, files: [render("Founder", { video: "talk.mp4", seconds: secs, name, deal: H }, `[REEL] talkinghead${who}9x16.mp4`)],
       caption: `${name ? `${name} here. ` : ""}We built Fare Radar because cheap flights out of Seattle and Portland are out there, you just have to catch them.\n\n`
-        + `It's free: ${link}\n\n${tags}` });
+        + `This week: ${H.from} → ${H.to} for $${H.price} round trip (${H.dates}).\n\nIt's free: ${link}\n\n${tags}` });
     mark(head);
   } catch (e) { log(`skipped talking head ${head.key}: ${e.message.split("\n")[0]}`); }
 }
@@ -241,13 +254,64 @@ const scriptFiles = scripts.map((sc) => {
   return name;
 });
 
-const uploads = [["[PLAN] weekplan.txt", "text/plain"],
+// ---------- quality gate: nothing unfinished ever reaches Ready to post ----------
+// Every video must be the right size and length, have sound, and show real picture (not black,
+// not frozen) at its start, middle and end; every text file must have content and no leftover
+// placeholders. One failure stops the whole batch, so a week is delivered complete or not at all.
+function checkVideo(file) {
+  const path = join(OUT, file);
+  const info = JSON.parse(run("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", path]));
+  const v = info.streams.find((s) => s.codec_type === "video");
+  const a = info.streams.find((s) => s.codec_type === "audio");
+  const secs = Number(info.format.duration);
+  const problems = [];
+  if (!v) problems.push("no video");
+  if (!a) problems.push("no sound");
+  const wantH = file.includes("4x4") ? 1080 : 1920;
+  if (v && (v.width !== 1080 || v.height !== wantH)) problems.push(`size ${v.width}x${v.height}`);
+  if (!(secs >= 9 && secs <= 65)) problems.push(`length ${secs}s`);
+  const lum = [0.15, 0.5, 0.92].map((t) => {
+    const r = execFileSync("ffmpeg", ["-v", "error", "-ss", String(secs * t), "-i", path, "-frames:v", "1", "-vf", "scale=32:32,format=gray", "-f", "rawvideo", "-"], { maxBuffer: 1 << 20 });
+    return { mean: r.reduce((s, x) => s + x, 0) / r.length, bytes: r };
+  });
+  lum.forEach((l, i) => { if (l.mean < 8) problems.push(`black frame at ${Math.round([15, 50, 92][i])}%`); });
+  const same = (x, y) => x.bytes.every((b, i) => Math.abs(b - y.bytes[i]) < 3);
+  if (same(lum[0], lum[1]) && same(lum[1], lum[2])) problems.push("picture doesn't change");
+  return problems;
+}
+const failures = [];
+for (const p of posts) for (const f of p.files) for (const why of checkVideo(f)) failures.push(`${f}: ${why}`);
+const texts = ["[PLAN] weekplan.txt", ...posts.map((p) => `[CAPTION] ${p.slug}.txt`), ...scriptFiles];
+for (const t of texts) {
+  const body = readFileSync(join(OUT, t), "utf8");
+  if (body.trim().length < 40) failures.push(`${t}: empty`);
+  if (/undefined|NaN|\$null|\[object Object\]|\{\{|\}\}/.test(body)) failures.push(`${t}: unfilled placeholder`);
+}
+if (!posts.length) failures.push("no posts were made");
+if (failures.length) {
+  console.error(`[weekly] NOT uploaded; the batch failed its checks:\n  ${failures.join("\n  ")}`);
+  process.exit(2);
+}
+log(`checks passed: ${posts.reduce((n, p) => n + p.files.length, 0)} videos, ${texts.length} text files`);
+
+// Plan goes last, so a finished plan in Ready to post always means the whole week is there.
+const uploads = [
   ...posts.flatMap((p) => [...p.files.map((f) => [f, "video/mp4"]), [`[CAPTION] ${p.slug}.txt`, "text/plain"]]),
-  ...scriptFiles.map((f) => [f, "text/plain"])];
+  ...scriptFiles.map((f) => [f, "text/plain"]),
+  ["[PLAN] weekplan.txt", "text/plain"]];
 if (DRY) { log(`dry run: ${uploads.length} files in ${OUT}`); process.exit(0); }
-for (const [file, type] of uploads) {
-  const rand = Math.random().toString(36).slice(2, 8);
-  put(`ready/${today}-${rand}-${file}`, join(OUT, file), type);
+const sent = [];
+try {
+  for (const [file, type] of uploads) {
+    const key = `ready/${today}-${Math.random().toString(36).slice(2, 8)}-${file}`;
+    put(key, join(OUT, file), type);
+    sent.push(key);
+  }
+} catch (e) {
+  // Half a week is worse than none: take back what went up, then fail loudly.
+  for (const key of sent) { try { wrangler("r2", "object", "delete", `${BUCKET}/${key}`, "--remote"); } catch { /* best effort */ } }
+  console.error(`[weekly] upload failed, removed the ${sent.length} files already sent: ${e.message.split("\n")[0]}`);
+  process.exit(3);
 }
 writeFileSync(join(WORK, "used.json"), JSON.stringify(used, null, 1));
 put(USED_KEY, join(WORK, "used.json"), "application/json");

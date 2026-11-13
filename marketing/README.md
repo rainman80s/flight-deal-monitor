@@ -15,9 +15,12 @@ Posts each week:
    photos become the background and trip clips play behind the intro.
 2. **Trip edit**: your trip clips and photos cut on the beat, then a real deal and the end card
    (when the library has trip media).
-3. **Founder clip**: the oldest unused talking head, trimmed to 58 seconds, branded, with the end
+3. **Top five** (`[REEL]`/`[POST] topfivedeals`): the week's five cheapest places, one per beat phrase. Always made, even with an empty library.
+4. **Founder clip**: the oldest unused talking head, trimmed to 58 seconds, branded, with the end
    card.
 
 Media is used once before it repeats (tracked in `system/used.json` in the bucket). Beats rotate,
 least recently used first. `beat.py` finds each beat's tempo and drop so cuts land on the beat.
 Only put **licensed** music in the library, with its license PDF.
+
+Before anything uploads, every video is checked (size, length, sound, real picture at start, middle and end) and every text file is checked for blanks or placeholders. One failure stops the whole batch; the plan file goes up last, and a failed upload removes whatever already went up. A week is delivered complete or not at all.
