@@ -99,6 +99,23 @@
   </dialog>
 
   <!-- one deal, at a glance -->
+  <!-- share a deal: our own sheet with a copyable link -->
+  <dialog id="share-dlg" class="sheet glass share-sheet" aria-labelledby="share-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <h2 id="share-title">Share this deal</h2>
+    <p class="muted-p" id="share-summary"></p>
+    <div class="share-link">
+      <input id="share-url" type="text" readonly aria-label="Link to this deal">
+      <button type="button" class="btn primary" id="share-copy">Copy link</button>
+    </div>
+    <p class="t-msg" id="share-msg" role="status" aria-live="polite"></p>
+    <div class="share-ways">
+      <a class="btn glass-btn" id="share-sms">Text it</a>
+      <a class="btn glass-btn" id="share-mail">Email it</a>
+      <button type="button" class="btn glass-btn" id="share-more" hidden>More options…</button>
+    </div>
+  </dialog>
+
   <dialog id="deal-dlg" class="sheet glass wide deal-sheet" aria-labelledby="deal-title">
     <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
     <p class="eyebrow" id="deal-kind"></p>

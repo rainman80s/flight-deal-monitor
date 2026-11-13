@@ -17,12 +17,12 @@ import { addDays, daysBetween, localParts, utcDate } from "./dates";
 import { rejectionReason } from "./rules";
 import { escHtml, page } from "./html";
 import { IgnavProvider } from "./ignav";
-import { city, destCity, googleFlightsUrl } from "./messages";
+import { city, destCity, googleFlightsUrl, trustedBookingUrl } from "./messages";
 import type { Deal } from "./models";
 import { ResendEmailer } from "./notify";
 import { paywall } from "./account";
 import { verifyUnsubscribe } from "./alerts";
-import { currentSession, currentUser, sameOrigin } from "./auth";
+import { currentSession, currentUser, readCookie, sameOrigin, SESSION_COOKIE } from "./auth";
 import { PRICE_CENTS, proLaunched, stripeEnabled, TRIAL_DAYS } from "./billing";
 import { EMAIL_RE } from "./crypto";
 import { providersEnabled } from "./oauth";
@@ -58,6 +58,9 @@ const json = (data: unknown, status = 200, extra: Record<string, string> = {}) =
     status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...extra },
   });
 
+/** How long a found fare stays on the boards without being seen again. */
+export const FRESH_HOURS = 48;
+
 export function publicDeal(cfg: Config, d: Deal) {
   return {
     code: d.code,
@@ -69,7 +72,7 @@ export function publicDeal(cfg: Config, d: Deal) {
     kind: kindOf(cfg, d),
     airlines: JSON.parse(d.airlines) as string[],
     outbound_stops: d.outbound_stops, return_stops: d.return_stops,
-    booking_url: d.booking_url,
+    booking_url: trustedBookingUrl(d),
     is_fake: !!d.is_fake,
     found_at: d.found_at,
     typical: d.typical_median ? { median: d.typical_median, low: d.typical_low, high: d.typical_high } : null,
@@ -120,7 +123,7 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const d = await store.dealByCode(code);
     const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 19);
     if (!d || d.is_fake || d.found_at < monthAgo) return json({ ok: false, error: "That deal has expired." }, 404);
-    return json({ ok: true, deal: publicDeal(cfg, d), stale: d.found_at < new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 19) },
+    return json({ ok: true, deal: publicDeal(cfg, d), stale: !!d.superseded_at || d.found_at < new Date(Date.now() - FRESH_HOURS * 3600_000).toISOString().slice(0, 19) },
       200, { "Cache-Control": "public, max-age=300" });
   }
 
@@ -132,6 +135,15 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const sortParam = url.searchParams.get("sort");
     const sort = sortParam === "price" || sortParam === "value" ? sortParam : "recent";
     const demo = cfg.dryRun || cfg.provider === "mock";
+    // Visitors all see the same boards, so their answer is cached at the edge for a minute. That
+    // keeps a busy day from turning into a database read per page view.
+    const anon = !readCookie(req, SESSION_COOKIE);
+    const edge = anon && typeof caches !== "undefined" ? (caches as unknown as { default: Cache }).default : null;
+    const cacheKey = new Request(url.toString(), { method: "GET" });
+    if (edge) {
+      const hit = await edge.match(cacheKey).catch(() => undefined);
+      if (hit) return hit;
+    }
 
     // Members see the deals through their own rules (which deals show, and which count as a ping).
     // Visitors and members without a subscription see the site defaults.
@@ -142,10 +154,11 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     const baselines = personal ? new Map((await new PriceHistory(cfg.env.DB).all())
       .map((b) => [`${b.origin}${b.destination}`, b])) : null;
 
-    // Only deals that still fit the rules and were seen in the last week; older prices have likely moved.
+    // Only deals that still fit the rules, were found in the last 48 hours, and haven't since been
+    // seen at a higher price. Cheap fares move fast; an old price is a promise we can't keep.
     const today = localParts(new Date(), cfg.timezone).date;
-    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const stillValid = (d: Deal) => d.found_at >= weekAgo.slice(0, 19) && !rejectionReason(view, {
+    const freshSince = new Date(Date.now() - FRESH_HOURS * 3600_000).toISOString();
+    const stillValid = (d: Deal) => d.found_at >= freshSince.slice(0, 19) && !d.superseded_at && !rejectionReason(view, {
       provider: d.provider, origin: d.origin, destination: d.destination, departDate: d.depart_date,
       returnDate: d.return_date, price: d.price, currency: d.currency, airlines: [], outboundStops: 0, returnStops: 0,
       offerId: null, bookingUrl: null, isFake: !!d.is_fake, kind: d.kind ?? undefined }, today);
@@ -174,6 +187,11 @@ export async function siteRoute(req: Request, url: URL, deps: Deps): Promise<Res
     // Best value: pinged first, then furthest below the route's usual price (or below the show limit).
     const score = (d: ReturnType<typeof publicDeal>) => d.price / (d.typical?.median ?? cats[d.kind].showUnder);
     if (sort === "value") deals.sort((a, b) => Number(b.pinged) - Number(a.pinged) || score(a) - score(b));
+    if (edge) {
+      const res = json({ deals: deals.slice(0, limit), personal: false }, 200, { "Cache-Control": "public, max-age=60" });
+      deps.background(edge.put(cacheKey, res.clone()).catch(() => {}));
+      return res;
+    }
     return json({ deals: deals.slice(0, limit), personal: !!personal }, 200, { "Cache-Control": "private, no-cache", Vary: "Cookie" });
   }
 

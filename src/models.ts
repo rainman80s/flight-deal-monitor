@@ -51,6 +51,8 @@ export interface Deal {
   is_fake: number;
   found_at: string;
   alerted_at: string | null;
+  /** Set when a later check found this trip noticeably pricier; such deals are no longer shown. */
+  superseded_at?: string | null;
   kind: "domestic" | "international" | null;
   dest_name: string | null;
   typical_low: number | null;

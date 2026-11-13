@@ -357,7 +357,7 @@
       air.hidden = false;
       air.textContent = `Book on ${siteName(deep)}`;
       air.href = deep;
-    } else if (!d.is_fake && first) {
+    } else if (!d.is_fake && first && new Set(d.airlines).size === 1) {
       air.hidden = false;
       air.textContent = `Go to ${AIRLINES[first][0]}`;
       air.href = AIRLINES[first][1];
@@ -384,15 +384,36 @@
   }
 
   function wireDealCard() {
-    $("#deal-share").addEventListener("click", async (e) => {
-      const btn = e.currentTarget;
+    const dlg = $("#share-dlg");
+    let shareText = "";
+    $("#deal-share").addEventListener("click", () => {
       const url = `${location.origin}/#deal=${encodeURIComponent(state.openDealCode || "")}`;
       const title = $("#deal-title").textContent;
-      try {
-        if (navigator.share) { await navigator.share({ title: `${title} · Fare Radar`, text: `${title} for ${$("#deal-price").textContent} round trip`, url }); return; }
-        await navigator.clipboard.writeText(url);
-        btn.textContent = "Link copied";
-      } catch { /* share sheet dismissed */ }
+      shareText = `${title} for ${$("#deal-price").textContent} round trip on Fare Radar`;
+      $("#share-summary").textContent = `${shareText}. Anyone with the link can see it, no account needed.`;
+      $("#share-url").value = url;
+      $("#share-sms").href = `sms:?&body=${encodeURIComponent(`${shareText}: ${url}`)}`;
+      $("#share-mail").href = `mailto:?subject=${encodeURIComponent(shareText)}&body=${encodeURIComponent(`Found this cheap flight:\n\n${shareText}\n${url}\n\nPrices move fast, so book soon if you want it.`)}`;
+      $("#share-more").hidden = !navigator.share;
+      flash($("#share-msg"), "");
+      $("#share-copy").textContent = "Copy link";
+      dlg.showModal();
+      $("#share-url").select();
+    });
+    $("#share-copy").addEventListener("click", async () => {
+      const input = $("#share-url");
+      let ok = false;
+      try { await navigator.clipboard.writeText(input.value); ok = true; } catch {
+        // Older browsers: select the text and use the legacy copy command.
+        input.select();
+        try { ok = document.execCommand("copy"); } catch { ok = false; }
+      }
+      $("#share-copy").textContent = ok ? "Copied ✓" : "Copy link";
+      flash($("#share-msg"), ok ? "Link copied. Paste it anywhere." : "Couldn't copy automatically. Select the link and copy it.", ok ? "ok" : "err");
+    });
+    $("#share-url").addEventListener("focus", (e) => e.target.select());
+    $("#share-more").addEventListener("click", async () => {
+      try { await navigator.share({ title: "Fare Radar deal", text: shareText, url: $("#share-url").value }); } catch { /* dismissed */ }
     });
   }
 

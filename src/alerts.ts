@@ -16,7 +16,7 @@ import { safeEqual } from "./crypto";
 import { shortDate } from "./dates";
 import { BRAND, button, escHtml, fine, frameFor, layout, p, priceLine, textFooter, unsubscribeHeaders } from "./email";
 import { actionUrl } from "./links";
-import { bookingSite, buyMeaning, city, dealEmail, dealGoogleUrl, destCity, isGoogleFlights, stops, tripDays } from "./messages";
+import { bookingSite, buyMeaning, city, dealEmail, dealGoogleUrl, destCity, isGoogleFlights, stops, trustedBookingUrl, tripDays } from "./messages";
 import type { Deal } from "./models";
 import type { Notifier } from "./notify";
 import { rejectionReason } from "./rules";
@@ -39,6 +39,7 @@ export async function verifyUnsubscribe(cfg: Config, userId: number, t: string) 
 export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why: string, unsub: string) {
   const f = frameFor(cfg);
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ");
+  const deep = isGoogleFlights(d.booking_url) ? null : trustedBookingUrl(d);
   const reason = `You're getting this because you turned on deal alerts in your ${BRAND} account (${u.email}).`;
   const subject = `✈ ${city(d.origin)} → ${destCity(d)} $${d.price.toFixed(0)} round trip, `
     + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
@@ -47,7 +48,7 @@ export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why
   const text = `${d.origin} → ${d.destination} (${destCity(d)}), $${d.price.toFixed(0)} round trip (${kind})\n`
     + `Why: ${why}\n${shortDate(d.depart_date)} → ${shortDate(d.return_date)} (${tripDays(d)} days) · ${legs}`
     + `${airlines ? ` · ${airlines}` : ""}\n\n`
-    + (d.booking_url && !isGoogleFlights(d.booking_url) ? `Book on ${bookingSite(d.booking_url)}: ${d.booking_url}\n` : "")
+    + (deep ? `Book on ${bookingSite(deep)}: ${deep}\n` : "")
     + `See it on Google Flights: ${dealGoogleUrl(d)}\n\nPrices move fast; check the fare before you pay.\n`
     + textFooter(f, reason, unsub);
   const html = layout(f, {
@@ -62,8 +63,8 @@ export function memberDealEmail(cfg: Config, u: User, d: Deal, kind: string, why
       + (d.typical_median && d.price < d.typical_median
         ? p(`Usually about <b style="color:#14262c">$${Math.round(d.typical_median)}</b> on this route, so you save about `
           + `<b style="color:#14262c">$${Math.round(d.typical_median - d.price)}</b>.`) : "")
-      + `<div style="margin:22px 0 4px">${d.booking_url && !isGoogleFlights(d.booking_url) ? button(d.booking_url, `Book on ${bookingSite(d.booking_url)}`) : ""}`
-      + `${button(dealGoogleUrl(d), "See it on Google Flights", d.booking_url && !isGoogleFlights(d.booking_url) ? "secondary" : undefined)}`
+      + `<div style="margin:22px 0 4px">${deep ? button(deep, `Book on ${bookingSite(deep)}`) : ""}`
+      + `${button(dealGoogleUrl(d), "See it on Google Flights", deep ? "secondary" : undefined)}`
       + `${button(`${frameFor(cfg).base}/#deal=${encodeURIComponent(d.code)}`, "Details", "secondary")}</div>`
       + fine("How to book: open the fare, and if the price moved try a day either side. Book with the airline when you can. "
         + "Cheap fares are often basic economy, so check bag fees. In the US you can usually cancel within 24 hours for a full refund.")

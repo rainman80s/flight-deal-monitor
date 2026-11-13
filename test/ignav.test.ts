@@ -68,7 +68,7 @@ describe("ignav", () => {
     expect(calls[0]).toMatchObject({ url: "https://ignav.com/api/fares/booking-links", body: { ignav_id: "ig_1" } });
   });
 
-  it("alerts use the airline booking link", async () => {
+  it("alerts skip an airline's link when the trip mixes airlines (Alaska out, Delta back)", async () => {
     const { cfg, store, notifier } = setup({ dryRun: false });
     const p = new IgnavProvider("k", "economy", 1, null, fakeFetch([], (url) => url.endsWith("/booking-links")
       ? new Response(JSON.stringify({ booking_options: [{ links: [{ provider_name: "AS", provider_type: "airline",
@@ -80,7 +80,8 @@ describe("ignav", () => {
     const r = await runCycle(cfg, store, { name: "ignav", search: () => p.search({ ...q, departDate: "2026-12-15",
       returnDate: "2026-12-20" }), bookingLink: (id) => p.bookingLink(id) }, notifier, new Date("2026-11-05T20:00:00Z"));
     expect(r.deals).toHaveLength(1);
-    expect(r.deals[0].booking_url).toBe("https://alaskaair.com/book");
+    // One airline's site can't sell a mixed itinerary at this price, so the Google Flights link stays.
+    expect(r.deals[0].booking_url).toMatch(/^https:\/\/www\.google\.com\/travel\/flights/);
   });
 });
 

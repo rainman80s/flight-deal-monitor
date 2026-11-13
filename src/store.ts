@@ -85,6 +85,23 @@ export class Store {
     return this.db.prepare("SELECT * FROM deals WHERE code=?").bind(code.toUpperCase()).first<Deal>();
   }
 
+  /**
+   * Hides deals whose price has since gone up: a later observation of the same trip (route,
+   * departure date and length) that's at least 15% and $15 more. Returns how many were hidden.
+   */
+  async markSuperseded(now = new Date(), sinceHours = 72): Promise<number> {
+    const iso = (d: Date) => d.toISOString().slice(0, 19) + "Z";
+    const r = await this.db.prepare(`UPDATE deals SET superseded_at = ?
+      WHERE superseded_at IS NULL AND is_fake = 0 AND found_at >= ?
+        AND EXISTS (SELECT 1 FROM price_obs o
+          WHERE o.destination = deals.destination AND o.origin = deals.origin AND o.observed_at > deals.found_at
+            AND o.depart_date = deals.depart_date
+            AND o.trip_days = CAST(julianday(deals.return_date) - julianday(deals.depart_date) AS INTEGER)
+            AND o.price >= deals.price * 1.15 AND o.price - deals.price >= 15)`)
+      .bind(iso(now), iso(new Date(now.getTime() - sinceHours * 3600_000))).run();
+    return r.meta.changes ?? 0;
+  }
+
   async recentDeals(limit = 20): Promise<Deal[]> {
     const r = await this.db.prepare("SELECT * FROM deals ORDER BY id DESC LIMIT ?").bind(limit).all<Deal>();
     return r.results;

@@ -178,6 +178,12 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     candidates.push({ fare: f, base, reason });
   }
 
+  // 3b. Hide earlier deals whose price has since gone up (from the prices just recorded).
+  try {
+    const hidden = await store.markSuperseded(now);
+    if (hidden) note(r, `${hidden} earlier deal${hidden === 1 ? "" : "s"} hidden: the price went up`);
+  } catch (e) { console.error("marking superseded deals failed", e); }
+
   // 4. Save and ping. Best deals first: furthest below usual (or below the alert price).
   const goodness = (c: Candidate) =>
     c.base ? c.fare.price / c.base.median : c.fare.price / catOf(cfg, c.fare).alert.under;
@@ -189,7 +195,8 @@ export async function runCycle(cfg: Config, store: Store, provider: FareProvider
     const f = c.fare;
     const ping = !!c.reason && pinged < cfg.maxAlertsPerCycle && await store.shouldAlert(f, cfg.realertDropPercent);
     if (!ping && await store.recentlyShown(f, 24)) { r.suppressed++; continue; }
-    if (ping && provider.bookingLink && f.offerId) {
+    // Airline deep links only for single-airline trips: an airline's site can't sell a mix.
+    if (ping && provider.bookingLink && f.offerId && new Set(f.airlines).size <= 1) {
       try { f.bookingUrl = (await provider.bookingLink(f.offerId)) ?? f.bookingUrl; }
       catch (e) { console.warn(`booking link for ${f.origin}-${f.destination} skipped: ${e}`); }
     }

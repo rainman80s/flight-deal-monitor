@@ -68,6 +68,7 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
                           meaning: string, f: EmailFrame): { subject: string; text: string; html: string } {
   const fake = d.is_fake ? "[FAKE TEST FARE] " : "";
   const airlines = (JSON.parse(d.airlines) as string[]).join(", ") || "?";
+  const deep = isGoogleFlights(d.booking_url) ? null : trustedBookingUrl(d);
   const subject = `${fake}✈ ${city(d.origin)} → ${destCity(d)} $${d.price.toFixed(0)} round trip, `
     + `${shortDate(d.depart_date)}–${shortDate(d.return_date)}`;
   const reason = "You're getting this because you're one of this site's owners and deal alerts are on.";
@@ -81,7 +82,7 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
   ];
   const text = `${fake}Flight deal\n\n${lines.join("\n")}\n\n${meaning}\n\nBuy: ${buyUrl}\nSkip: ${skipUrl}\n`
     + `\nSee it on Google Flights: ${dealGoogleUrl(d)}\n`
-    + (d.booking_url && !isGoogleFlights(d.booking_url) ? `Book on ${bookingSite(d.booking_url)}: ${d.booking_url}\n` : "")
+    + (deep ? `Book on ${bookingSite(deep)}: ${deep}\n` : "")
     + textFooter(f, reason);
   const body = (d.is_fake ? callout("Fake test fare: not a real flight.") : "")
     + priceLine(`$${d.price.toFixed(0)}`, `round trip · ${tripDays(d)} days`)
@@ -92,8 +93,7 @@ export function dealEmail(d: Deal, kind: string, why: string, buyUrl: string, sk
     + fine(escHtml(meaning))
     + fine(`${d.origin}–${d.destination} · deal ${escHtml(d.code)}`
       + ` · <a href="${escHtml(dealGoogleUrl(d))}" style="color:#7d8a8c">See it on Google Flights</a>`
-      + (d.booking_url && !isGoogleFlights(d.booking_url)
-        ? ` · <a href="${escHtml(d.booking_url)}" style="color:#7d8a8c">Book on ${escHtml(bookingSite(d.booking_url))}</a>` : ""));
+      + (deep ? ` · <a href="${escHtml(deep)}" style="color:#7d8a8c">Book on ${escHtml(bookingSite(deep))}</a>` : ""));
   const html = layout(f, {
     preheader: `${why}. ${shortDate(d.depart_date)} to ${shortDate(d.return_date)}, ${stops(d.outbound_stops)}.`,
     eyebrow: `${d.is_fake ? "Test · " : ""}Deal alert · ${kind === "international" ? "International" : "Domestic"}`,
@@ -111,6 +111,19 @@ export const isGoogleFlights = (url: string | null | undefined) =>
 export function bookingSite(url: string): string {
   if (isGoogleFlights(url)) return "Google Flights";
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "the booking site"; }
+}
+
+/**
+ * The provider's own booking link, if it can actually sell this fare. A trip that mixes airlines
+ * (say Delta out, Frontier back) is only bookable as shown via Google Flights or an agency, so an
+ * airline's link for it would show a different price.
+ */
+export function trustedBookingUrl(d: { booking_url?: string | null; airlines: string | string[] }): string | null {
+  const url = d.booking_url ?? null;
+  if (!url || isGoogleFlights(url)) return url;
+  let codes: string[] = [];
+  try { codes = Array.isArray(d.airlines) ? d.airlines : JSON.parse(d.airlines) as string[]; } catch { codes = []; }
+  return new Set(codes).size <= 1 ? url : null;
 }
 
 /** The Google Flights search for a deal: always Google, whatever the provider's own link is. */
