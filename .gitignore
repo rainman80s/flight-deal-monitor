@@ -8,3 +8,8 @@ __pycache__/
 
 # ShipStudio metadata
 .shipstudio/
+
+# marketing pipeline scratch
+marketing/public/
+marketing/work/
+marketing/out/

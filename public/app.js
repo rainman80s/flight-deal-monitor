@@ -1315,6 +1315,7 @@
 
   async function renderAdmin() {
     if (!isAdmin()) { location.hash = "#browse"; return; }
+    renderContent();
     try {
       const out = await api("/api/admin/testers");
       const c = out.counts;
@@ -1346,6 +1347,133 @@
         show(out.user);
       } catch (err) { flash(msg, err.message, "err"); }
     });
+  }
+
+  // ---------------- admin: content library ----------------
+  const FOLDER_HINTS = {
+    "talking-heads": "Clips of you or Brock talking to the camera. Vertical is best. Videos of any length are fine.",
+    "trip-photos": "Photos from your trips. The best ones become backgrounds and slides.",
+    "trip-videos": "Trip footage: takeoffs, window seats, beaches, cities. Short clips work best.",
+    music: "Licensed beats only, and drop the license PDF here too so we always have proof.",
+    ready: "Finished posts from Claude, with a caption file for each. Download and post.",
+  };
+  let folder = "talking-heads";
+  const size = (n) => (n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
+
+  async function renderContent() {
+    $$("#content-folders button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.folder === folder)));
+    $("#content-hint").textContent = FOLDER_HINTS[folder];
+    const list = $("#content-files");
+    try {
+      const out = await api(`/api/admin/media?folder=${folder}`);
+      list.replaceChildren(...(out.files.length ? out.files.map(fileRow) : [el("li", "fine", "Nothing here yet.")]));
+    } catch (e) { list.replaceChildren(el("li", "fine", e.message)); }
+  }
+
+  function fileRow(f) {
+    const li = el("li", "admin-user content-file");
+    if (/^image\/(jpeg|png|webp)/.test(f.type || "")) {
+      const img = document.createElement("img");
+      img.className = "thumb-img";
+      img.alt = "";
+      img.loading = "lazy";
+      img.src = `/api/admin/media/file?key=${encodeURIComponent(f.key)}&view=1`;
+      li.append(img);
+    }
+    const who = el("div", "admin-who");
+    who.append(el("b", "", f.name), el("span", "fine", `${size(f.size)} · ${ago(f.uploaded)}${f.by ? ` · ${title(f.by)}` : ""}`));
+    const acts = el("div", "t-actions content-acts");
+    const dl = el("a", "btn glass-btn small", "Download");
+    dl.href = `/api/admin/media/file?key=${encodeURIComponent(f.key)}`;
+    const del = el("button", "btn glass-btn small danger-text", "Delete");
+    del.type = "button";
+    del.addEventListener("click", async () => {
+      if (!confirm(`Delete "${f.name}" for both of you? This can't be undone.`)) return;
+      del.disabled = true;
+      try {
+        await api(`/api/admin/media?key=${encodeURIComponent(f.key)}`, "DELETE");
+        li.hidden = true;
+      } catch (e) { del.disabled = false; del.textContent = e.message; }
+    });
+    acts.append(dl, del);
+    li.append(who, acts);
+    return li;
+  }
+
+  /** Sends one chunk with progress (fetch can't report upload progress). */
+  function putPart(url, blob, onProgress) {
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("PUT", url);
+      x.withCredentials = true;
+      x.upload.onprogress = (e) => onProgress(e.loaded);
+      x.onload = () => {
+        let data = {};
+        try { data = JSON.parse(x.responseText); } catch { /* not JSON */ }
+        if (x.status >= 200 && x.status < 300 && data.ok) resolve(data);
+        else reject(new Error(data.error || `Upload failed (${x.status})`));
+      };
+      x.onerror = () => reject(new Error("Network error. Check your connection and try again."));
+      x.send(blob);
+    });
+  }
+
+  async function uploadFile(file, into) {
+    const row = el("li", "upload-row");
+    const bar = el("progress");
+    bar.max = 100;
+    bar.value = 0;
+    const msg = el("span", "fine", "Starting…");
+    row.append(el("span", "", file.name), bar, msg);
+    $("#content-uploads").append(row);
+    let start;
+    try {
+      start = await api("/api/admin/media/start", "POST", { folder: into, name: file.name, size: file.size, type: file.type });
+      const parts = [];
+      const total = file.size;
+      let done = 0;
+      for (let off = 0, n = 1; off < total; off += start.chunk, n++) {
+        const blob = file.slice(off, Math.min(total, off + start.chunk));
+        const q = new URLSearchParams({ key: start.key, uploadId: start.uploadId, n: String(n) });
+        for (let tries = 1; ; tries++) {
+          try {
+            const part = await putPart(`/api/admin/media/part?${q}`, blob, (sent) => {
+              bar.value = Math.round(((done + sent) / total) * 100);
+              msg.textContent = `${bar.value}% of ${size(total)}`;
+            });
+            parts.push({ n: part.n, etag: part.etag });
+            break;
+          } catch (e) {
+            if (tries >= 3) throw e;
+            await new Promise((r) => setTimeout(r, 1500 * tries));
+          }
+        }
+        done += blob.size;
+      }
+      await api("/api/admin/media/finish", "POST", { key: start.key, uploadId: start.uploadId, parts });
+      bar.value = 100;
+      msg.textContent = "Uploaded ✓";
+      msg.className = "fine ok-text";
+      if (into === folder) renderContent();
+      setTimeout(() => { row.hidden = true; }, 4000);
+    } catch (e) {
+      msg.textContent = e.message;
+      msg.className = "fine err-text";
+      if (start?.uploadId) api("/api/admin/media/abort", "POST", { key: start.key, uploadId: start.uploadId }).catch(() => {});
+    }
+  }
+
+  function wireContent() {
+    $("#content-folders").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (b) { folder = b.dataset.folder; renderContent(); }
+    });
+    const send = (files) => { for (const f of files) uploadFile(f, folder); };
+    $("#content-input").addEventListener("change", (e) => { send([...e.target.files]); e.target.value = ""; });
+    const drop = $("#content-drop");
+    ["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => drop.addEventListener(t, () => drop.classList.remove("over")));
+    drop.addEventListener("drop", (e) => { e.preventDefault(); send([...(e.dataTransfer?.files || [])]); });
   }
 
   // ---------------- owners: traveler details ----------------
@@ -1616,6 +1744,7 @@
   wireContact();
   wireDealCard();
   wireAdmin();
+  wireContent();
   $("#plan-cta").addEventListener("click", (e) => {
     if (!state.me.signed_in) openAuth("signup");
     else if (isMember()) return;

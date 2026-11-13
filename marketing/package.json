@@ -1,0 +1,16 @@
+{
+  "name": "fare-radar-marketing",
+  "private": true,
+  "description": "Weekly social content for Fare Radar: beat-synced Deal Drop videos, trip edits and founder clips.",
+  "scripts": {
+    "weekly": "node weekly.mjs",
+    "studio": "remotion studio src/index.ts"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.1.0",
+    "@remotion/cli": "4.0.543",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.543"
+  }
+}

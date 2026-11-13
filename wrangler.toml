@@ -20,6 +20,11 @@ fallthrough = false
 [triggers]
 crons = ["7 * * * *"]
 
+# Owners' content library (Admin → Content): private, reachable only through admin routes.
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "fareradar-media"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "flightmon"

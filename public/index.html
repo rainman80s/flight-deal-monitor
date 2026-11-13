@@ -514,6 +514,27 @@
           <span class="t-msg" role="status" aria-live="polite"></span></div>
         <div class="admin-result" id="admin-result" hidden></div>
       </form>
+      <section class="acct-card" aria-labelledby="content-title" id="content-card">
+        <div class="card-head"><h2 id="content-title">Content</h2></div>
+        <p class="muted-p">Drop in talking heads, trip photos and videos, and licensed beats. Each week Claude builds
+          posts from them and puts the finished ones in <b>Ready to post</b>. Only you two can see this.</p>
+        <div class="seg wide content-folders" id="content-folders" role="tablist" aria-label="Folders">
+          <button type="button" role="tab" data-folder="talking-heads" aria-selected="true">Talking heads</button>
+          <button type="button" role="tab" data-folder="trip-photos" aria-selected="false">Trip photos</button>
+          <button type="button" role="tab" data-folder="trip-videos" aria-selected="false">Trip videos</button>
+          <button type="button" role="tab" data-folder="music" aria-selected="false">Music</button>
+          <button type="button" role="tab" data-folder="ready" aria-selected="false">Ready to post</button>
+        </div>
+        <label class="dropzone" id="content-drop">
+          <input type="file" id="content-input" multiple hidden
+            accept="image/*,video/*,audio/*,.mov,.heic,.mp3,.wav,.m4a,.pdf,.txt">
+          <b>Drop files here</b> or tap to choose
+          <span class="fine" id="content-hint">Videos of any length are fine. Big files upload in pieces.</span>
+        </label>
+        <ul class="upload-list" id="content-uploads"></ul>
+        <ul class="admin-list content-files" id="content-files"></ul>
+      </section>
+
       <section class="acct-card" aria-labelledby="testers-title">
         <div class="card-head"><h2 id="testers-title">Beta testers</h2></div>
         <p class="muted-p">Testers get every Pro feature free. They can't change the site's defaults or see this page.</p>

@@ -15,6 +15,8 @@ export interface Traveler {
 /** Everything the Worker reads from its environment (bindings + secrets). */
 export interface Env {
   DB: D1Database;
+  /** Owners' content library (Admin → Content). */
+  MEDIA?: R2Bucket;
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_NUMBER?: string;
