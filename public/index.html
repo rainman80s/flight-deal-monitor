@@ -99,6 +99,27 @@
   </dialog>
 
   <!-- one deal, at a glance -->
+  <!-- beta feedback (testers and owners) -->
+  <button type="button" class="btn primary feedback-fab" id="feedback-fab" hidden>Feedback</button>
+  <dialog id="feedback-dlg" class="sheet glass share-sheet" aria-labelledby="feedback-title">
+    <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
+    <h2 id="feedback-title">Send feedback</h2>
+    <p class="muted-p">You're a beta tester, so this goes straight to Ran and Brock. Bugs, ideas, anything confusing.</p>
+    <form id="feedback-form" novalidate>
+      <div class="seg wide" id="feedback-kind" role="radiogroup" aria-label="What kind of feedback">
+        <button type="button" role="radio" data-value="bug" aria-checked="true">Something's broken</button>
+        <button type="button" role="radio" data-value="idea" aria-checked="false">Idea</button>
+        <button type="button" role="radio" data-value="other" aria-checked="false">Other</button>
+      </div>
+      <label class="f feedback-text"><span class="field-label">What happened, or what would make it better?</span>
+        <textarea name="message" rows="6" maxlength="4000" required
+          placeholder="e.g. On my phone the Share button didn't copy the link."></textarea></label>
+      <p class="fine">We'll note which page you were on and your device type, so we can reproduce bugs.</p>
+      <div class="t-actions"><button class="btn primary" type="submit">Send</button>
+        <span class="t-msg" id="feedback-msg" role="status" aria-live="polite"></span></div>
+    </form>
+  </dialog>
+
   <!-- share a deal: our own sheet with a copyable link -->
   <dialog id="share-dlg" class="sheet glass share-sheet" aria-labelledby="share-title">
     <form method="dialog" class="sheet-close"><button aria-label="Close">✕</button></form>
@@ -514,6 +535,17 @@
           <span class="t-msg" role="status" aria-live="polite"></span></div>
         <div class="admin-result" id="admin-result" hidden></div>
       </form>
+      <section class="acct-card" aria-labelledby="fb-title" id="feedback-card">
+        <div class="card-head"><h2 id="fb-title">Feedback</h2><span class="pill" id="fb-count"></span></div>
+        <p class="muted-p">From beta testers. You'll also get an email for each one.</p>
+        <div class="seg wide" id="fb-filter" role="tablist" aria-label="Show">
+          <button type="button" role="tab" data-status="new" aria-selected="true">Open</button>
+          <button type="button" role="tab" data-status="done" aria-selected="false">Done</button>
+          <button type="button" role="tab" data-status="all" aria-selected="false">All</button>
+        </div>
+        <ul class="admin-list fb-list" id="fb-list"></ul>
+      </section>
+
       <section class="acct-card" aria-labelledby="content-title" id="content-card">
         <div class="card-head"><h2 id="content-title">Content</h2></div>
         <p class="muted-p">Drop in talking heads, trip photos and videos, and licensed beats. Each week Claude builds
@@ -628,6 +660,8 @@
           emailed you about, so we never send the same one twice.</li>
         <li data-pro-only><b>Membership.</b> Your Stripe customer number and your membership status and renewal date. Stripe holds
           the payment details.</li>
+        <li><b>Beta feedback.</b> If you're a beta tester and send feedback, we keep your message (encrypted), the page you
+          were on and your device type (like "iPhone · Safari"), so we can fix what you report.</li>
         <li><b>Contact form.</b> Your name if you give it, your email and your message. It's delivered to us by email
           and isn't stored on the site.</li>
         <li><b>Owners' booking details.</b> Only the site's owners can book. The traveler details they save for

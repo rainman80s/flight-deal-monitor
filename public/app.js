@@ -689,6 +689,7 @@
     } else btn.textContent = "Sign in";
     if (state.me.must_change_password) openPw();
     $("#nav-admin").hidden = !isAdmin();
+    $("#feedback-fab").hidden = !(state.me.signed_in && (state.me.role === "tester" || isAdmin()));
     $(".segmented").classList.toggle("has-admin", isAdmin());
     state.rules = null;
     if (isMember()) {
@@ -1316,6 +1317,7 @@
   async function renderAdmin() {
     if (!isAdmin()) { location.hash = "#browse"; return; }
     renderContent();
+    renderFeedback();
     try {
       const out = await api("/api/admin/testers");
       const c = out.counts;
@@ -1347,6 +1349,87 @@
         show(out.user);
       } catch (err) { flash(msg, err.message, "err"); }
     });
+  }
+
+  // ---------------- beta feedback ----------------
+  function wireFeedback() {
+    const dlg = $("#feedback-dlg");
+    const form = $("#feedback-form");
+    let kind = "bug";
+    $("#feedback-fab").addEventListener("click", () => {
+      flash($("#feedback-msg"), "");
+      dlg.showModal();
+      form.elements.message.focus();
+    });
+    $("#feedback-kind").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      kind = b.dataset.value;
+      $$("#feedback-kind button").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    });
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msg = $("#feedback-msg");
+      const btn = $("button[type=submit]", form);
+      const text = form.elements.message.value.trim();
+      if (text.length < 3) { flash(msg, "Tell us a little more.", "err"); return; }
+      btn.disabled = true;
+      try {
+        const page = (location.hash.slice(1).split("?")[0] || "browse").slice(0, 40);
+        await api("/api/account/feedback", "POST", { kind, message: text, page });
+        form.elements.message.value = "";
+        flash(msg, "Sent. Thank you!", "ok");
+        setTimeout(() => dlg.close(), 1200);
+      } catch (err) { flash(msg, err.message, "err"); }
+      btn.disabled = false;
+    });
+
+    $("#fb-filter").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      fbStatus = b.dataset.status;
+      renderFeedback();
+    });
+  }
+
+  let fbStatus = "new";
+  const FB_KIND = { bug: "Bug", idea: "Idea", other: "Other" };
+
+  async function renderFeedback() {
+    $$("#fb-filter button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.status === fbStatus)));
+    const list = $("#fb-list");
+    try {
+      const out = await api(`/api/admin/feedback?status=${fbStatus}`);
+      $("#fb-count").textContent = out.counts.open ? `${out.counts.open} open` : "All caught up";
+      $("#fb-count").dataset.kind = out.counts.open ? "member" : "free";
+      if (!out.items.length) {
+        list.replaceChildren(el("li", "fine", fbStatus === "new" ? "No open feedback. Nice." : "Nothing here yet."));
+        return;
+      }
+      list.replaceChildren(...out.items.map((it) => {
+        const li = el("li", `admin-user fb-item${it.status === "done" ? " done" : ""}`);
+        const head = el("div", "fb-head");
+        head.append(el("span", `fb-kind ${it.kind}`, FB_KIND[it.kind] || "Other"),
+          el("b", "", it.from.name || it.from.email),
+          el("span", "fine", `${it.page ? `on ${it.page} · ` : ""}${it.device || ""} · ${ago(it.created_at)}`));
+        const body = el("p", "fb-msg", it.message);
+        const acts = el("div", "t-actions content-acts");
+        const toggle = el("button", it.status === "done" ? "btn glass-btn small" : "btn primary small", it.status === "done" ? "Reopen" : "Mark done");
+        toggle.type = "button";
+        toggle.addEventListener("click", async () => {
+          toggle.disabled = true;
+          try {
+            await api("/api/admin/feedback/status", "PUT", { id: it.id, status: it.status === "done" ? "new" : "done" });
+            renderFeedback();
+          } catch (e) { toggle.disabled = false; toggle.textContent = e.message; }
+        });
+        const reply = el("a", "btn glass-btn small", "Reply by email");
+        reply.href = `mailto:${it.from.email}?subject=${encodeURIComponent("Your Fare Radar feedback")}`;
+        acts.append(toggle, reply);
+        li.append(head, body, acts);
+        return li;
+      }));
+    } catch (e) { list.replaceChildren(el("li", "fine", e.message)); }
   }
 
   // ---------------- admin: content library ----------------
@@ -1745,6 +1828,7 @@
   wireDealCard();
   wireAdmin();
   wireContent();
+  wireFeedback();
   $("#plan-cta").addEventListener("click", (e) => {
     if (!state.me.signed_in) openAuth("signup");
     else if (isMember()) return;

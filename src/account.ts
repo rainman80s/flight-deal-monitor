@@ -37,6 +37,7 @@ import { EMAIL_RE, normalizeEmail, passwordProblem } from "./crypto";
 import { BRAND, button, fine, frameFor, layout, p as para, textFooter } from "./email";
 import { ResendEmailer } from "./notify";
 import { clearOauthCookie, finishFlow, OAUTH_COOKIE, OAuthError, type Provider, providersEnabled, readFlow, startFlow } from "./oauth";
+import { adminFeedback, submitFeedback } from "./feedback";
 import { mediaRoute } from "./media";
 import { ownerBooking } from "./owner";
 import { describe, personalCategories, toRaw, validateCat } from "./settings";
@@ -346,6 +347,10 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
       return json({ ok: true, account: await accountView(cfg, users, (await users.byId(u.id))!) });
     }
 
+    if (p === "/api/account/feedback" && m === "POST") {
+      return submitFeedback(cfg, users, u, req, (to, msg) => sendMail(cfg, to, msg));
+    }
+
     if (p === "/api/account/pro-waitlist" && m === "PUT") {
       const b = await body(req);
       await users.setWaitlist(u.id, b?.on !== false);
@@ -355,6 +360,7 @@ export async function accountRoute(req: Request, url: URL, deps: Deps): Promise<
     if (p.startsWith("/api/admin/")) {
       if (u.role !== "admin" || u.mustChangePassword) return json({ ok: false, error: "Admins only." }, 403);
       if (p.startsWith("/api/admin/media")) return mediaRoute(req, new URL(req.url), cfg, u);
+      if (p.startsWith("/api/admin/feedback")) return adminFeedback(cfg, users, req, p, m);
       return adminRoute(req, p, m, users);
     }
 
