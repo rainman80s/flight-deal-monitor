@@ -146,9 +146,11 @@ const render = (comp, props, file) => {
   return file;
 };
 const month = new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" });
-const link = `https://fareradar.cc/?utm_source=instagram&utm_medium=social&utm_campaign=${today}`;
-const tags = "#Seattle #Portland #SEA #PDX #cheapflights #flightdeals #PNW";
-const credit = `Music: licensed beat "${beatFile.key.split("/").pop().replace(/^\d{4}-\d{2}-\d{2}-[a-z0-9]+-/, "").replace(/\.[^.]+$/, "")}"`;
+const link = "https://fareradar.cc/?utm_source=instagram&utm_medium=bio"; // for the bio only; captions carry no links
+// House caption style: headline, blank line, bullets, a question or nudge, "Prices change fast.",
+// then exactly five hashtags. No links in captions (the link lives in the bio) and no music credit.
+const tags = "#Seattle #Portland #SEA #PDX #cheapflights";
+const bullet = (d) => `• ${d.origin} → ${d.to}: $${d.price} round trip (${d.dates})`;
 const posts = [];
 const slug = (city) => shortCity(city).normalize("NFD").replace(/[^A-Za-z]/g, "").toLowerCase();
 
@@ -158,10 +160,9 @@ const adProps = { beats: grid.beats, audio: "cut.mp3", hero: H, list: listDeals.
 const heroSlug = `flightdeal${slug(H.to)}`;
 posts.push({ slug: heroSlug, files: [render("DealDropVertical", adProps, `[REEL] ${heroSlug}9x16.mp4`),
   render("DealDropSquare", adProps, `[POST] ${heroSlug}4x4.mp4`)],
-  caption: `${H.from} → ${H.to} for $${H.price} round trip${H.usual ? ` (usually about $${H.usual})` : ""}. ✈️\n\n`
-    + `${H.dates}${H.airline ? ` on ${H.airline}` : ""}. We check fares out of SEA and PDX every hour, and this is the best one this week.\n\n`
-    + `More this week:\n${listDeals.slice(0, 4).map((d) => `• ${d.origin} → ${shortCity(d.destination_city)} $${Math.round(d.price)}`).join("\n")}\n\n`
-    + `Free deal alerts: ${link}\n(link in bio)\n\nPrices change fast, so book soon if you want it.\n\n${tags}\n${credit}` });
+  caption: `${H.from} → ${H.to} for $${H.price} round trip this week ✈️\n\n`
+    + `• ${H.dates}${H.airline ? ` on ${H.airline}` : ""}\n${H.usual ? `• Usually about $${H.usual}\n` : ""}\n`
+    + `Would you take it?\n\nPrices change fast.\n\n${tags}` });
 
 // Always made, media or not: the week's five cheapest places, one per beat phrase.
 const five = listDeals.slice(0, 5).map(toDeal);
@@ -170,16 +171,16 @@ if (five.length >= 3) {
   posts.push({ slug: "topfivedeals", files: [render("TopFiveVertical", fiveProps, "[REEL] topfivedeals9x16.mp4"),
     render("TopFiveSquare", fiveProps, "[POST] topfivedeals4x4.mp4")],
     caption: `${five.length} cheap flights out of Seattle and Portland this week ✈️\n\n`
-      + `${five.map((d) => `• ${d.origin} → ${d.to}: $${d.price} round trip (${d.dates})`).join("\n")}\n\n`
-      + `Which one are you booking? Free deal alerts: ${link}\n(link in bio)\n\nPrices change fast.\n\n${tags}\n${credit}` });
+      + `${five.map(bullet).join("\n")}\n\n`
+      + `Which one are you booking?\n\nPrices change fast.\n\n${tags}` });
 }
 
 if (clips.length || photos.length > 1) {
   const T = toDeal(tripDeal);
   posts.push({ files: [render("TripEdit", { beats: grid.beats, audio: "cut.mp3", clips, photos: photos.slice(1).length ? photos.slice(1) : photos,
     deal: T, caption: "Go somewhere." }, `[REEL] tripedit${slug(T.to)}9x16.mp4`)], slug: `tripedit${slug(T.to)}`,
-  caption: `This is why we built Fare Radar. 🌎\n\nThis week: ${T.from} → ${T.to} for $${T.price} round trip (${T.dates}).\n\n`
-    + `Free alerts when fares out of Seattle and Portland drop: ${link}\n\n${tags}\n${credit}` });
+  caption: `Go somewhere this winter 🌎\n\n• ${T.from} → ${T.to}: $${T.price} round trip (${T.dates})\n\n`
+    + `Where would you go?\n\nPrices change fast.\n\n${tags}` });
 }
 
 const head = pick(lib.heads.filter((x) => ["mp4", "mov", "m4v", "webm"].includes(ext(x.key))), 1)[0];
@@ -195,8 +196,9 @@ if (head) {
     const who = (name || "founder").toLowerCase().replace(/[^a-z]/g, "");
     // The week's headline deal pops up over the talking head, so every founder clip sells something real.
     posts.push({ slug: `talkinghead${who}`, files: [render("Founder", { video: "talk.mp4", seconds: secs, name, deal: H }, `[REEL] talkinghead${who}9x16.mp4`)],
-      caption: `${name ? `${name} here. ` : ""}We built Fare Radar because cheap flights out of Seattle and Portland are out there, you just have to catch them.\n\n`
-        + `This week: ${H.from} → ${H.to} for $${H.price} round trip (${H.dates}).\n\nIt's free: ${link}\n\n${tags}` });
+      caption: `Why we built Fare Radar ✈️\n\n• We check flights out of Seattle and Portland every hour\n`
+        + `• This week: ${H.from} → ${H.to} for $${H.price} round trip (${H.dates})\n\n`
+        + `What trip should we find next?\n\nPrices change fast.\n\n${tags}` });
     mark(head);
   } catch (e) { log(`skipped talking head ${head.key}: ${e.message.split("\n")[0]}`); }
 }
@@ -288,6 +290,13 @@ for (const t of texts) {
   if (/undefined|NaN|\$null|\[object Object\]|\{\{|\}\}/.test(body)) failures.push(`${t}: unfilled placeholder`);
 }
 if (!posts.length) failures.push("no posts were made");
+for (const p of posts) {
+  const c = p.caption;
+  const tagCount = (c.match(/#\w+/g) || []).length;
+  if (tagCount !== 5) failures.push(`[CAPTION] ${p.slug}.txt: ${tagCount} hashtags, needs exactly 5`);
+  if (/https?:\/\/|utm_|music:|licensed beat/i.test(c)) failures.push(`[CAPTION] ${p.slug}.txt: has a link or music credit`);
+  if (!/Prices change fast\./.test(c)) failures.push(`[CAPTION] ${p.slug}.txt: missing "Prices change fast."`);
+}
 if (failures.length) {
   console.error(`[weekly] NOT uploaded; the batch failed its checks:\n  ${failures.join("\n  ")}`);
   process.exit(2);
