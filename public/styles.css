@@ -877,4 +877,14 @@ body:not(.pro-soon) [data-pro-soon] { display: none !important; }
 .fb-kind.bug { background: rgba(255,122,112,.18); color: var(--bad); }
 .fb-kind.idea { background: var(--accent-soft); color: var(--accent); }
 .fb-item.done { opacity: .6; }
-@media (max-width: 600px) { .feedback-fab { right: 14px; bottom: 14px; } }
+@media (max-width: 600px) { .feedback-fab { right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); padding: 10px 18px; font-size: 15px; } }
+
+/* ---------- content library on phones ---------- */
+/* Five folders don't fit in one pill at phone width: lay them out as a tidy grid of chips instead. */
+@media (max-width: 600px) {
+  .seg.wide.content-folders { display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 18px; overflow: visible; gap: 4px; }
+  .seg.wide.content-folders button { padding: 9px 6px; font-size: 14px; border-radius: 14px; white-space: normal; line-height: 1.2; }
+  .seg.wide.content-folders button[data-folder="ready"] { grid-column: span 2; }
+  .dropzone { padding: 22px 14px; }
+  #fb-filter button { padding: 9px 6px; }
+}

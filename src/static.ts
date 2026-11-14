@@ -16,6 +16,17 @@ import ogJpg from "../public/og.jpg";
 import stylesCss from "../public/styles.css";
 
 const SHORT = "public, max-age=300";
+
+/**
+ * A fingerprint of the current CSS and JS. The page links "/styles.css?v=<this>", so every deploy
+ * changes the address and phones can't keep showing an old cached copy.
+ */
+function fingerprint(...parts: string[]): string {
+  let h = 2166136261;
+  for (const s of parts) for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+export const ASSET_VERSION = fingerprint(String(stylesCss), String(appJs));
 // These never change under the same name; give a new file a new name to replace it.
 const LONG = "public, max-age=604800";
 
@@ -66,7 +77,7 @@ export function staticFile(path: string, base = ""): Response | null {
   const f = gen ? { ...gen, cache: SHORT } : FILES[path];
   if (!f) return null;
   // Page metadata (link previews, canonical URL) needs the site's absolute address.
-  const body = typeof f.body === "string" && f.type.startsWith("text/html") ? f.body.replaceAll("{{BASE}}", base) : f.body;
+  const body = typeof f.body === "string" && f.type.startsWith("text/html") ? f.body.replaceAll("{{BASE}}", base).replaceAll("{{V}}", ASSET_VERSION) : f.body;
   return new Response(body, {
     headers: {
       "Content-Type": f.type,
