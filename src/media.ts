@@ -61,6 +61,36 @@ function bucket(cfg: Config): R2Bucket | null {
   return (cfg.env as unknown as { MEDIA?: R2Bucket }).MEDIA ?? null;
 }
 
+/**
+ * "[REEL] flightdealphoenix9x16.mp4" and "[POST] flightdealphoenix4x4.mp4" share the caption
+ * "[CAPTION] flightdealphoenix.txt" from the same week. Returns that shared name ("flightdealphoenix").
+ */
+export function postSlug(name: string): string | null {
+  const m = name.match(/^\[(?:REEL|POST|CAPTION)\]\s*(.+?)(?:\d+x\d+)?\.(?:mp4|mov|txt)$/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/** Gives each finished video in Ready to post its caption text, so the page can copy it in one tap. */
+async function attachCaptions(r2: R2Bucket, files: { key: string; name: string; caption?: string | null }[]) {
+  const week = (key: string) => key.split("/")[1]?.slice(0, 10) ?? "";
+  const captions = files.filter((f) => /^\[CAPTION\]/i.test(f.name)).slice(0, 80);
+  const text = new Map<string, string>(); // "week|slug" and "slug" (newest wins) -> caption
+  for (const c of captions) {
+    const slug = postSlug(c.name);
+    if (!slug) continue;
+    const obj = await r2.get(c.key);
+    if (!obj) continue;
+    const body = (await new Response(obj.body).text()).slice(0, 5000);
+    text.set(`${week(c.key)}|${slug}`, body);
+    if (!text.has(slug)) text.set(slug, body); // files are newest first
+  }
+  for (const f of files) {
+    if (!/^\[(REEL|POST)\]/i.test(f.name)) continue;
+    const slug = postSlug(f.name);
+    f.caption = slug ? text.get(`${week(f.key)}|${slug}`) ?? text.get(slug) ?? null : null;
+  }
+}
+
 async function body(req: Request): Promise<Record<string, unknown> | null> {
   try { const b = await req.json(); return b && typeof b === "object" ? b as Record<string, unknown> : null; } catch { return null; }
 }
@@ -74,7 +104,7 @@ export async function mediaRoute(req: Request, url: URL, cfg: Config, u: User): 
   if (p === "/api/admin/media" && m === "GET") {
     const folder = url.searchParams.get("folder");
     if (!isFolder(folder)) return json({ ok: false, error: "Unknown folder." }, 400);
-    const files: { key: string; name: string; size: number; uploaded: string; by: string | null; type: string | null }[] = [];
+    const files: { key: string; name: string; size: number; uploaded: string; by: string | null; type: string | null; caption?: string | null }[] = [];
     let cursor: string | undefined;
     do {
       const page = await r2.list({ prefix: `${folder}/`, cursor, include: ["customMetadata", "httpMetadata"] });
@@ -85,6 +115,7 @@ export async function mediaRoute(req: Request, url: URL, cfg: Config, u: User): 
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor && files.length < 2000);
     files.sort((a, b) => b.uploaded.localeCompare(a.uploaded) || a.key.localeCompare(b.key));
+    if (folder === "ready") await attachCaptions(r2, files);
     return json({ ok: true, folder, files });
   }
 

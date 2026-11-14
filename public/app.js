@@ -1478,6 +1478,27 @@
         li.hidden = true;
       } catch (e) { del.disabled = false; del.textContent = e.message; }
     });
+    if (f.caption) {
+      // The caption for this reel/post, ready to paste into Instagram.
+      const copy = el("button", "btn primary small", "Copy caption");
+      copy.type = "button";
+      copy.addEventListener("click", async () => {
+        let ok = false;
+        try { await navigator.clipboard.writeText(f.caption); ok = true; } catch {
+          const ta = document.createElement("textarea");
+          ta.value = f.caption;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "fixed"; ta.style.opacity = "0";
+          document.body.append(ta);
+          ta.select();
+          try { ok = document.execCommand("copy"); } catch { ok = false; }
+          ta.remove();
+        }
+        copy.textContent = ok ? "Copied ✓" : "Couldn't copy";
+        setTimeout(() => { copy.textContent = "Copy caption"; }, 2500);
+      });
+      acts.append(copy);
+    }
     acts.append(dl, del);
     li.append(who, acts);
     return li;

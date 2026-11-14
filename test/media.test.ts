@@ -89,6 +89,27 @@ describe("content library", () => {
     expect((await s.call("GET", "/api/admin/media?folder=trip-videos", undefined, A)).body.files).toHaveLength(0);
   });
 
+  it("gives each reel and post in Ready to post its matching caption from the same week", async () => {
+    const s = site();
+    const a = await sessionFor(s.cfg, { role: "admin", contact: "RAN", email: "ran@example.com" });
+    const put = (key: string, text: string, contentType = "text/plain") =>
+      s.r2.objects.set(key, { data: new TextEncoder().encode(text), contentType, meta: {}, uploaded: new Date() });
+    put("ready/2026-11-15-aaaaaa-[CAPTION] flightdealphoenix.txt", "Seattle → Phoenix for $186 this week");
+    put("ready/2026-11-15-bbbbbb-[REEL] flightdealphoenix9x16.mp4", "v", "video/mp4");
+    put("ready/2026-11-15-cccccc-[POST] flightdealphoenix4x4.mp4", "v", "video/mp4");
+    put("ready/2026-11-08-dddddd-[CAPTION] topfivedeals.txt", "last week's five");
+    put("ready/2026-11-15-eeeeee-[CAPTION] topfivedeals.txt", "this week's five");
+    put("ready/2026-11-15-ffffff-[REEL] topfivedeals9x16.mp4", "v", "video/mp4");
+    put("ready/2026-11-13-seed03-[REEL] flightdeallosangeles9x16.mp4", "v", "video/mp4");
+    const files = (await s.call("GET", "/api/admin/media?folder=ready", undefined, { Cookie: a.cookie })).body.files as { name: string; caption?: string | null }[];
+    const cap = (n: string) => files.find((f) => f.name === n)?.caption;
+    expect(cap("[REEL] flightdealphoenix9x16.mp4")).toBe("Seattle → Phoenix for $186 this week");
+    expect(cap("[POST] flightdealphoenix4x4.mp4")).toBe("Seattle → Phoenix for $186 this week");
+    expect(cap("[REEL] topfivedeals9x16.mp4")).toBe("this week's five");
+    expect(cap("[REEL] flightdeallosangeles9x16.mp4")).toBeNull();
+    expect(files.find((f) => f.name.startsWith("[CAPTION]"))?.caption).toBeUndefined();
+  });
+
   it("is admins only: testers and members get 403, visitors 401, other sites can't write", async () => {
     const s = site();
     const t = await sessionFor(s.cfg, { email: "t@example.com" });
